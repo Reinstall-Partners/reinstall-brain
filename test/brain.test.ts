@@ -252,3 +252,21 @@ describe('git merges with no custom merge drivers', () => {
     o.db.close();
   });
 });
+
+describe('loose types', () => {
+  it('indexes files another tool wrote, without linting them', async () => {
+    const root = tempRepo();
+    initBrain(root, 'loose');
+    const b0 = openBrain(root);
+    writeFileSync(path.join(b0.dir, 'brain.yaml'), 'format: 1\nname: loose\ntypes:\n  - name: memory\n    path: memory\n    schema: loose\n');
+    mkdirSync(path.join(b0.dir, 'memory'), { recursive: true });
+    writeFileSync(path.join(b0.dir, 'memory', 'feedback_short.md'), '---\nname: short-answers\ndescription: User prefers short answers\nmetadata:\n  type: feedback\n---\n\nKeep replies brief.\n');
+    writeFileSync(path.join(b0.dir, 'memory', 'MEMORY.md'), '- [Short answers](feedback_short.md) — prefers brevity\n');
+    const brain = openBrain(root);
+    const o = await openFresh(brain);
+    expect(searchRecords(o, 'brief')[0].id).toBe('memory:feedback-short');
+    expect(listRecords(o, { type: 'memory' }).length).toBe(2);
+    expect(lintBrain(brain, o.db)).toEqual([]);
+    o.db.close();
+  });
+});

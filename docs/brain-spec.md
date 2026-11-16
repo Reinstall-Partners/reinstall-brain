@@ -194,6 +194,11 @@ Kits build workflows on a brain without changing the core:
 - **Keep live state in `brain/.local/<kit>.db`** or similar. Anything under `.local/` is local to the
   machine, never committed, and never treated as truth by other tools.
 
+- **Index another tool's files** with `schema: loose` on a registered type, for example Claude Code's
+  memory files (`- name: memory` / `path: memory` / `schema: loose`). Loose files are indexed and
+  searchable but never linted: their id is `<type>:<file name>`, the title comes from `title`,
+  `name`, the first heading or the file name, and files without frontmatter are indexed whole.
+
 A kit must not write fields with core meanings for other purposes, and must not store data only in
 `.local/` that other people need to see.
 

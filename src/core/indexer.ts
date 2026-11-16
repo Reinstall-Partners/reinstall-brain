@@ -2,7 +2,34 @@ import { statSync, mkdirSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path';
 import { openDb, type Db } from './sqlite.js';
 import type { Brain } from './brain.js';
-import { listMarkdown, readRecordFile, lintFields, type Fields } from './record.js';
+import { listMarkdown, readRecordFile, lintFields, parseRecord, slugify, type Fields } from './record.js';
+import { readFileSync } from 'node:fs';
+
+/** Read a file another tool wrote (no brain frontmatter required) as a record-shaped row. */
+function readLoose(file: string, type: string, mtimeMs: number): { fields: Fields; body: string } {
+  const text = readFileSync(file, 'utf8');
+  let fm: Fields = {};
+  let body = text;
+  try {
+    const p = parseRecord(text);
+    fm = p.fields;
+    body = p.body;
+  } catch {
+    /* no frontmatter: the whole file is the body */
+  }
+  const stem = path.basename(file, '.md');
+  const heading = /^#\s+(.+)$/m.exec(body)?.[1];
+  const fields: Fields = {
+    ...fm,
+    id: `${type}:${slugify(stem)}`,
+    type,
+    title: String(fm.title ?? fm.name ?? heading ?? stem),
+    status: String(fm.status ?? 'active'),
+    created: String(fm.created ?? new Date(mtimeMs).toISOString()),
+  };
+  if (fm.description && !fields.title) fields.title = String(fm.description);
+  return { fields, body: fm.description ? `${fm.description}\n\n${body}` : body };
+}
 
 export const INDEX_VERSION = 1;
 
@@ -149,7 +176,7 @@ export function refresh(brain: Brain, db: Db): RefreshResult {
       if (prev && prev.mtime === st.mtimeMs && prev.size === st.size) continue;
       dropRecord(p);
       try {
-        const rec = readRecordFile(file);
+        const rec = brain.looseTypes.has(typeFromFolder) ? readLoose(file, typeFromFolder, st.mtimeMs) : readRecordFile(file);
         const fields = { ...rec.fields };
         if (fields.type === undefined) fields.type = typeFromFolder;
         const row = toRow(fields);
@@ -196,7 +223,7 @@ export function lintBrain(brain: Brain, db: Db): LintIssue[] {
   for (const r of db.prepare('SELECT path, error FROM files WHERE error IS NOT NULL').all()) {
     issues.push({ path: String(r.path), level: 'error', message: String(r.error) });
   }
-  const rows = db.prepare('SELECT path, fields FROM records').all();
+  const rows = db.prepare('SELECT path, fields, type FROM records').all().filter((r) => !brain.looseTypes.has(String(r.type)));
   const ids = new Set<string>();
   for (const r of rows) {
     const fields = JSON.parse(String(r.fields)) as Fields;

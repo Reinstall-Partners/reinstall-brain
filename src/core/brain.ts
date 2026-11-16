@@ -13,6 +13,8 @@ export interface TypeDef {
   /** Instead of folder: a kit-owned folder relative to brain/, searched recursively. */
   path?: string;
   kit?: string;
+  /** `loose`: files written by another tool (e.g. Claude Code memory). Indexed and searchable, never linted for brain fields. */
+  schema?: 'record' | 'loose';
 }
 
 export interface Connection {
@@ -38,6 +40,8 @@ export interface Brain {
   config: BrainConfig;
   /** type name -> absolute folder holding its records */
   typeDirs: Map<string, string>;
+  /** Types whose files are indexed loosely (see TypeDef.schema). */
+  looseTypes: Set<string>;
 }
 
 function gitPrimaryCheckout(cwd: string): string | undefined {
@@ -87,6 +91,7 @@ export function loadConfig(brainDir: string): BrainConfig {
           folder: String(t.folder ?? `${t.name}s`),
           path: t.path ? String(t.path) : undefined,
           kit: t.kit ? String(t.kit) : undefined,
+          schema: t.schema === 'loose' ? 'loose' : 'record',
         }))
       : [],
     connects: Array.isArray(raw.connects)
@@ -111,10 +116,12 @@ export function openBrain(root: string): Brain {
   }
   const typeDirs = new Map<string, string>();
   for (const [name, folder] of Object.entries(CORE_TYPES)) typeDirs.set(name, path.join(dir, 'records', folder));
+  const looseTypes = new Set<string>();
   for (const t of config.types) {
     typeDirs.set(t.name, t.path ? path.join(dir, t.path) : path.join(dir, 'records', t.folder));
+    if (t.schema === 'loose') looseTypes.add(t.name);
   }
-  return { root, dir, config, typeDirs };
+  return { root, dir, config, typeDirs, looseTypes };
 }
 
 export function requireBrain(cwd?: string): Brain {
