@@ -54,7 +54,7 @@ describe('wiring', () => {
     expect(readFileSync(path.join(r, '.gitignore'), 'utf8')).toContain('/.claude/skills/brain');
 
     const second = wire(r, 'brain');
-    expect(second.every((l) => l.kind === 'ok')).toBe(true);
+    expect(second.filter((l) => l.kind !== 'ok')).toEqual([]);
     // One hook, not two.
     const again = JSON.parse(readFileSync(path.join(r, '.claude', 'settings.json'), 'utf8'));
     expect(JSON.stringify(again).match(/session-start\.mjs/g)!.length).toBe(1);

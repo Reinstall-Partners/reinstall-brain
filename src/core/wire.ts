@@ -77,6 +77,15 @@ function norm(p: string): string {
   return s;
 }
 
+/** Windows junctions can report their target in another form (a \\?\ prefix, 8.3 names): compare what both resolve to. */
+function sameRealPath(a: string, b: string): boolean {
+  try {
+    return norm(realpathSync.native(a)) === norm(realpathSync.native(b));
+  } catch {
+    return false;
+  }
+}
+
 function removeLink(p: string): void {
   try {
     unlinkSync(p);
@@ -94,7 +103,7 @@ function linkDir(target: string, at: string, dryRun: boolean): WireLine['kind'] 
     try {
       cur = readlinkSync(at);
     } catch {}
-    if (norm(cur) === norm(target)) return 'ok';
+    if (norm(cur) === norm(target) || sameRealPath(at, target)) return 'ok';
     if (!dryRun) {
       removeLink(at);
       mkdirSync(path.dirname(at), { recursive: true });
