@@ -261,6 +261,17 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
 /** Move plans and research under brain/ (git mv when tracked, so history follows), rewriting old paths inside them. */
 export function moveDocs(brain: Brain): string[] {
   const moved: string[] = [];
+  // Ignore rules move with the folders. Without this, a rule such as `cowork/research/*/raw/`
+  // stops matching after the move and ignored data (raw client exports) becomes committable.
+  const gi = path.join(brain.root, '.gitignore');
+  if (existsSync(gi)) {
+    const text = readFileSync(gi, 'utf8');
+    const next = text.replace(/(^|[\s/!*])cowork\/(plans|research)(?=\/|$|\s)/gm, '$1brain/$2');
+    if (next !== text) {
+      writeFileSync(gi, next);
+      moved.push('.gitignore rules for cowork/plans and cowork/research now name brain/');
+    }
+  }
   for (const [from, to] of [['cowork/plans', 'plans'], ['cowork/research', 'research']] as const) {
     const src = path.join(brain.root, from);
     const dest = path.join(brain.dir, to);

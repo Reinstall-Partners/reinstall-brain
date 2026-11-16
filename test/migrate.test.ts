@@ -29,6 +29,7 @@ describe('migrateBrain', () => {
     mkdirSync(path.join(root, 'cowork', 'brain'), { recursive: true });
     mkdirSync(path.join(root, 'cowork', 'plans'), { recursive: true });
     writeFileSync(path.join(root, 'cowork', 'plans', '001_x.md'), 'see cowork/research/000_y/SUMMARY.md\n');
+    writeFileSync(path.join(root, '.gitignore'), 'node_modules/\ncowork/research/*/raw/\n/cowork/plans/scratch/\n');
     const db = new DatabaseSync(path.join(root, 'cowork', 'brain', 'BRAIN.db'));
     db.exec(`CREATE TABLE logs (id INTEGER PRIMARY KEY, created_at TEXT, type TEXT, title TEXT, body TEXT, tags TEXT,
       status TEXT, parent_id INTEGER, meta TEXT, priority INTEGER, pillar TEXT, focus INTEGER, importance INTEGER,
@@ -52,6 +53,7 @@ describe('migrateBrain', () => {
     expect(r.rankingExported).toBe(1);
     expect(r.swarmRowsExported.swarm_runs).toBe(1);
     expect(existsSync(path.join(root, 'brain', 'plans', '001_x.md'))).toBe(true);
+    expect(readFileSync(path.join(root, '.gitignore'), 'utf8')).toBe('node_modules/\nbrain/research/*/raw/\n/brain/plans/scratch/\n');
     expect(readFileSync(path.join(root, 'brain', 'plans', '001_x.md'), 'utf8')).toContain('brain/research/000_y');
     const o = await openFresh(brain);
     const note = findRecord(o, '1')!;
