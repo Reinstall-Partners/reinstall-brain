@@ -137,7 +137,7 @@ export function createRecord(opened: Opened, input: NewRecordInput): RecordRow {
 }
 
 /** Change fields on one record, touching only its file. `undefined` removes a field. */
-export function updateRecord(opened: Opened, ref: string, changes: Fields, appendLog?: string): RecordRow {
+export function updateRecord(opened: Opened, ref: string, changes: Fields, appendLog?: string, newBody?: string): RecordRow {
   const found = findRecord(opened, ref);
   if (!found) throw new Error(`no record "${ref}"`);
   const file = path.join(opened.brain.root, found.path);
@@ -159,7 +159,7 @@ export function updateRecord(opened: Opened, ref: string, changes: Fields, appen
   // same record would conflict in git. Git history already records when a file changed.
   const now = nowIso();
   if (changes.status === 'done' && fields.completed === undefined) fields.completed = now;
-  let body = rec.body;
+  let body = newBody ?? rec.body;
   if (appendLog) {
     const line = `- ${now.slice(0, 10)} ${appendLog}`;
     body = /^## Log\s*$/m.test(body) ? `${body.replace(/\s+$/, '')}\n${line}` : `${body.replace(/\s+$/, '')}\n\n## Log\n${line}`;

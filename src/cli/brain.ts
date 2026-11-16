@@ -25,7 +25,8 @@ Read
 
 Write
   new <type> "<title>" [--body TEXT|--body-file F] [--tag X]... [--parent ID] [--scope P] [--author WHO] [--set field=value]...
-  set <id> field=value... [--log "who: what happened"]   change fields; meta.key=value for nested; "" removes
+  set <id> [field=value...] [--log "who: what"] [--body TEXT|--body-file F]
+                                     change fields (meta.key=value for nested; "" removes), add a log line, or replace the body
   done <id> [--log "who: what happened"]
   supersede <old-id> <new-id>        the new record replaces the old one
 
@@ -49,7 +50,12 @@ function parseAssignments(pairs: string[]): Record<string, unknown> {
     if (i < 1) throw new Error(`"${kv}" is not field=value`);
     const key = kv.slice(0, i);
     const raw = kv.slice(i + 1);
-    const value = raw === '' ? undefined : ['tags', 'blocked_by', 'docs'].includes(key) ? raw.split(',').map((x) => x.trim()).filter(Boolean) : raw;
+    if (key === 'body') throw new Error('the body is not a field: use --body TEXT or --body-file F');
+    const value =
+      raw === '' ? undefined
+      : ['tags', 'blocked_by', 'docs'].includes(key) ? raw.split(',').map((x) => x.trim()).filter(Boolean)
+      : key === 'importance' && /^-?\d+$/.test(raw) ? Number(raw)
+      : raw;
     const parts = key.split('.');
     if (parts.length === 1) changes[key] = value;
     else {
@@ -183,8 +189,11 @@ async function main(argv: string[]): Promise<number> {
       }
       case 'set': {
         const [ref, ...assignments] = pos;
-        if (!ref || !assignments.length) throw new Error('usage: reinstall-brain set <id> field=value...');
-        const r = updateRecord(opened, ref, parseAssignments(assignments), a.value('log'));
+        const newBody = a.value('body-file') !== undefined ? readFileSync(a.value('body-file') === '-' ? 0 : a.value('body-file')!, 'utf8') : a.value('body');
+        if (!ref || (!assignments.length && !a.value('log') && newBody === undefined)) {
+          throw new Error('usage: reinstall-brain set <id> [field=value...] [--log "who: what"] [--body TEXT|--body-file F]');
+        }
+        const r = updateRecord(opened, ref, parseAssignments(assignments), a.value('log'), newBody);
         out(r, () => console.log(`${r.id}  ${r.path}`));
         return 0;
       }
@@ -243,10 +252,14 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+// Set the exit code and let Node exit on its own: process.exit() right after a large write to a
+// pipe truncates stdout at the pipe buffer (64 KB).
 main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
+  (code) => {
+    process.exitCode = code;
+  },
   (e) => {
     process.stderr.write(`reinstall-brain: ${(e as Error).message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
   },
 );
