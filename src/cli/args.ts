@@ -6,7 +6,7 @@ export interface Args {
   values(name: string): string[];
 }
 
-const BOOLEAN = new Set(['json', 'rebuild', 'help']);
+const BOOLEAN = new Set(['json', 'rebuild', 'help', 'dry-run', 'move-docs']);
 
 export function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
