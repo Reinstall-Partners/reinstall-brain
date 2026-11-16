@@ -745,6 +745,78 @@ function derivedOrder(hub: Brain, db: Db, gm: GoalMap): Record<string, unknown>[
   return keyed.map((x) => x.r);
 }
 
+// ---- pace: a goal's measure_cmd, run and logged ----
+
+export interface PaceRow {
+  key: string;
+  title: string;
+  file: string;
+  measure: string | null;
+  measure_cmd: string | null;
+  /** The last line of the goal's ## Pace section. */
+  last: string | null;
+  /** With run: what measure_cmd printed (one line), or the error. */
+  reading?: string;
+  error?: string;
+}
+
+/** The goal template's example line, which the first real reading replaces. */
+const PACE_PLACEHOLDER = /^\s*-\s*YYYY-MM-DD\b/;
+
+/** Append `- <line>` at the end of a body's `## Pace` section (adding the section when missing). */
+export function appendPace(body: string, line: string): string {
+  const lines = body.replace(/\s+$/, '').split('\n').filter((l) => !PACE_PLACEHOLDER.test(l));
+  const at = lines.findIndex((l) => /^##\s+Pace\s*$/.test(l));
+  if (at < 0) return `${lines.join('\n')}\n\n## Pace\n- ${line}\n`;
+  let end = at + 1;
+  while (end < lines.length && !/^##\s/.test(lines[end])) end++;
+  while (end > at + 1 && lines[end - 1].trim() === '') end--;
+  lines.splice(end, 0, `- ${line}`);
+  return `${lines.join('\n')}\n`;
+}
+
+function lastPace(body: string): string | null {
+  const m = /^##\s+Pace\s*$([\s\S]*?)(?=^##\s|$(?![\s\S]))/m.exec(body);
+  const items = (m?.[1] ?? '').split('\n').filter((l) => /^\s*-\s/.test(l) && !PACE_PLACEHOLDER.test(l));
+  return items.length ? items[items.length - 1].replace(/^\s*-\s*/, '') : null;
+}
+
+/**
+ * Every open goal (ranked first) with its measure, measure_cmd and latest Pace line. With run, each
+ * measure_cmd runs in its brain's repo (it is the owner's own command, from the owner's own brains),
+ * and its output is appended to the goal's ## Pace as today's reading.
+ */
+export async function pace(hub: Brain, db: Db, opts: { run?: boolean; author?: string } = {}): Promise<PaceRow[]> {
+  const g = goals(hub, db);
+  const all = [...g.ranked, ...g.unranked];
+  const rows: PaceRow[] = [];
+  const today = new Date().toISOString().slice(0, 10);
+  for (const goal of all) {
+    const rec = readRecordFile(goal.file);
+    const cmd = rec.fields.measure_cmd ? String(rec.fields.measure_cmd) : null;
+    const row: PaceRow = { key: goal.key, title: goal.title, file: goal.file, measure: goal.measure, measure_cmd: cmd, last: lastPace(rec.body) };
+    if (opts.run && cmd) {
+      const root = db.prepare('SELECT root FROM brains WHERE name = ?').get(goal.brain)?.root as string | undefined;
+      try {
+        const outp = execFileSync(process.platform === 'win32' ? 'cmd' : 'sh', process.platform === 'win32' ? ['/c', cmd] : ['-c', cmd], { cwd: root ?? hub.root, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
+        const reading = outp.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join('; ').slice(0, 300);
+        row.reading = reading || '(no output)';
+        const b = openBrain(root ?? hub.root);
+        const o = await openFresh(b);
+        try {
+          updateRecord(o, goal.id, {}, undefined, appendPace(rec.body, `${today}: ${row.reading} (measure_cmd${opts.author ? `, ${opts.author}` : ''})`));
+        } finally {
+          o.db.close();
+        }
+      } catch (e) {
+        row.error = String((e as { stderr?: string }).stderr || (e as Error).message).trim().split('\n')[0].slice(0, 200);
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 // ---- moving a record between brains ----
 
 export interface MoveResult {

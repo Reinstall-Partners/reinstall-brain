@@ -257,6 +257,17 @@ export function lintBrain(brain: Brain, db: Db): LintIssue[] {
       if (!ids.has(String(b))) issues.push({ path: String(r.path), level: 'warning', message: `blocked_by "${b}" does not match any record` });
     }
   }
+  // Open work tied to work that was dropped: a parent dropped or superseded, or a goal dropped.
+  const statusOf = new Map<string, string>();
+  for (const r of db.prepare('SELECT id, status FROM records').all()) statusOf.set(String(r.id), String(r.status));
+  for (const r of db.prepare("SELECT path, parent, json_extract(fields, '$.serves') AS serves FROM records WHERE type = 'task' AND status IN ('active','blocked')").all()) {
+    for (const [f, ref] of [['parent', r.parent], ['serves', r.serves]] as const) {
+      const st = ref ? statusOf.get(String(ref)) : undefined;
+      if (st === 'dropped' || st === 'superseded') {
+        issues.push({ path: String(r.path), level: 'warning', message: `still open, but its ${f === 'parent' ? 'parent' : 'goal'} "${ref}" is ${st}: drop it too, or say why it lives on` });
+      }
+    }
+  }
   for (const d of planDrift(brain, db)) {
     issues.push({ path: d.path, level: 'warning', message: `phase ${d.phase} of ${d.plan} is marked done there, but this task is still ${d.status} (lint --fix closes it)` });
   }

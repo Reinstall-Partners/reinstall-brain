@@ -4,7 +4,7 @@ import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
   initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
-  projects, placeProject, inboxByPlan, moveRecord,
+  projects, placeProject, inboxByPlan, moveRecord, pace,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
 import { expandHome, locateBrain, openBrain } from '../core/brain.js';
@@ -31,6 +31,8 @@ Set up
 Work
   index                            refresh every connected brain and the hub's combined index
   goals                            ranked goals, then unranked open goals, with open tasks serving each
+  pace [--run] [--author WHO]      each goal's latest Pace line; --run runs each goal's measure_cmd and
+                                   appends today's reading to its Pace
   place-goal <brain/id> --top|--bottom|--at N|--above KEY|--below KEY
   unrank-goal <brain/id>
   cover <hub goal key> <brain/id>  a hub goal covers a project goal or task (uncover to remove)
@@ -239,6 +241,20 @@ async function main(argv: string[]): Promise<number> {
         const ok = unrankGoal(hub, db, pos[0] ?? '');
         out({ removed: ok }, () => console.log(ok ? `removed ${pos[0]}` : `${pos[0]} was not ranked`));
         return 0;
+      }
+      case 'pace': {
+        const r = await pace(hub, db, { run: a.flag('run'), author: a.value('author') });
+        out(r, () => {
+          for (const p of r) {
+            console.log(`${p.key.padEnd(30)} ${p.title}`);
+            if (p.reading !== undefined) console.log(`${''.padEnd(32)}now: ${p.reading}  (added to its Pace)`);
+            else if (p.error) console.log(`${''.padEnd(32)}measure_cmd failed: ${p.error}`);
+            console.log(`${''.padEnd(32)}last: ${p.last ?? '(no Pace line yet)'}`);
+            if (p.measure_cmd && !a.flag('run')) console.log(`${''.padEnd(32)}measure_cmd: ${p.measure_cmd}  (pace --run runs it)`);
+            else if (!p.measure_cmd) console.log(`${''.padEnd(32)}measure: ${p.measure ?? '(none)'}  (read by hand; add measure_cmd to compute it)`);
+          }
+        });
+        return r.some((p) => p.error) ? 1 : 0;
       }
       case 'move': {
         if (pos.length < 2) throw new Error('usage: reinstall-hub move <brain/id> <to-brain> [--author WHO]');

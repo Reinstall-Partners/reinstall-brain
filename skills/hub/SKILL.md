@@ -160,8 +160,11 @@ Goals are the outcomes everything else is for. Few is better: 3 to 5 hub goals.
 5. **Tie project goals to hub goals:** for each project goal (`level: project`) not covered by a hub
    goal, one question offering the hub goals it could count toward, plus **Stands alone**:
    `reinstall-hub cover <hub goal key> <project goal key>`.
-6. **Check pace** (when asked, or weekly): read each ranked goal's `measure`, append a Pace line to its
-   record, and say in one line per goal whether it is on track.
+6. **Check pace** (when asked, or weekly): `reinstall-hub pace --run --author "claude (for <owner>)"`
+   runs each goal's `measure_cmd` and appends the reading to its Pace. For a goal with only a prose
+   `measure`, read it by hand and append the line yourself (`## Pace`, `- YYYY-MM-DD: <reading>`);
+   when a command could read it, offer to add `measure_cmd`. Then say in one line per goal whether it
+   is on track.
 
 ---
 
@@ -181,7 +184,8 @@ project order and clearing dead work, with a pin only for the few tasks that mus
    `reinstall-hub place-project <name> --at N`. It reports pins that still go ahead of the new order;
    ask whether to keep them (`--drop-pins` clears them).
 3. **Clear the dead, by cluster,** when a project holds many tasks with no recent activity. Find them
-   by `created` and by the last dated line of each file's `## Log` (older than about six weeks). Group
+   by `created` and by the last dated line of each file's `## Log` (older than about six weeks), and by
+   `reinstall-brain lint` in each repo: open tasks whose parent or goal was dropped. Group
    them: by project, then by plan (`plan` in the JSON) or by theme (a dropped direction, an old setup
    checklist, a finished plan whose phase tasks were never closed: check the plan file's
    `**Status:** done` lines). One question per cluster, up to 4 per call, naming the cluster, its count

@@ -19,7 +19,7 @@ export const STATUSES = ['active', 'blocked', 'done', 'dropped', 'superseded'] a
 export const FIELD_ORDER = [
   'id', 'type', 'title', 'status', 'created', 'scope', 'tags', 'assignee', 'author', 'delegate',
   'updated', 'parent', 'serves', 'supersedes', 'superseded_by', 'blocked_by', 'due', 'completed', 'importance',
-  'done_when', 'measure', 'covers', 'ranking', 'managed_by', 'docs', 'legacy_id', 'meta',
+  'done_when', 'measure', 'covers', 'measure_cmd', 'ranking', 'managed_by', 'docs', 'legacy_id', 'meta',
 ] as const;
 
 const LIST_FIELDS = new Set(['tags', 'blocked_by', 'docs', 'covers']);
