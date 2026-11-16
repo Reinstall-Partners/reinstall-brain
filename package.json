@@ -1,0 +1,38 @@
+{
+  "name": "reinstall-brain",
+  "version": "0.0.1",
+  "description": "Brain and Hub: a git-native record store that any agent can read, and the hub that connects every project's brain.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "reinstall-brain": "dist/cli/brain.js",
+    "reinstall-hub": "dist/cli/hub.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "compile": "node scripts/compile.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reinstall-Partners/reinstall-brain.git"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
