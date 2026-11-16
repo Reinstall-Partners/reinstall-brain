@@ -60,6 +60,7 @@ reinstall-hub status --json                # connected brains, record counts, pr
 reinstall-hub goals --json                 # ranked goals, then unranked open goals; open_tasks, measure, file
 reinstall-hub place-goal <key> --at N | --top | --bottom | --above <key> | --below <key>
 reinstall-hub cover <hub goal key> <key>   # a hub goal counts a project goal or task (uncover removes)
+reinstall-hub move <key> <to-brain> --author "claude (for <owner>)"   # a record belongs in another brain
 reinstall-hub projects --json              # projects in rank order: open and pinned tasks each
 reinstall-hub place-project <name> --at N | --top | --bottom | --above <name> | --below <name> [--drop-pins]
 reinstall-hub priorities --json [--limit N] # every open task in order (pins first): rank, pinned, plan, goal, file

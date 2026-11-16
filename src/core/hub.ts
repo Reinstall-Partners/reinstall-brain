@@ -10,6 +10,7 @@ import os from 'node:os';
 import { openDb, type Db } from './sqlite.js';
 import { type Brain, openBrain, locateBrain, expandHome } from './brain.js';
 import { openFresh, initBrain, defaultBrainName, findRecord, updateRecord } from './ops.js';
+import { readRecordFile, writeRecordFile, slugify, type Fields } from './record.js';
 import { wire, type WireLine } from './wire.js';
 
 export const OPEN = ['active', 'blocked'];
@@ -311,7 +312,7 @@ DROP TABLE IF EXISTS items;
 CREATE TABLE items (
   key TEXT PRIMARY KEY, brain TEXT NOT NULL, ord INTEGER NOT NULL, id TEXT NOT NULL, type TEXT, title TEXT,
   status TEXT, created TEXT, due TEXT, assignee TEXT, tags TEXT, file TEXT, serves TEXT, covers TEXT,
-  measure TEXT, done_when TEXT, plan TEXT, plan_id TEXT
+  measure TEXT, done_when TEXT, plan TEXT, plan_id TEXT, plan_brain TEXT
 );
 CREATE TABLE IF NOT EXISTS brains (name TEXT PRIMARY KEY, ord INTEGER, root TEXT, records INTEGER, error TEXT);
 `;
@@ -333,7 +334,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM items; DELETE FROM brains;');
-    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     const insB = db.prepare('INSERT OR REPLACE INTO brains VALUES (?,?,?,?,?)');
     const sources = [{ name: hub.config.name, path: hub.root }, ...hub.config.connects];
     for (const [ord, c] of sources.entries()) {
@@ -345,10 +346,10 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
         continue;
       }
       const opened = await openFresh(openBrain(root));
-      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan, json_extract(meta, '$.plan_id') AS plan_id FROM records").all();
+      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan, json_extract(meta, '$.plan_id') AS plan_id, json_extract(meta, '$.plan_brain') AS plan_brain FROM records").all();
       opened.db.close();
       for (const r of rows) {
-        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null, r.plan_id == null ? null : String(r.plan_id));
+        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null, r.plan_id == null ? null : String(r.plan_id), r.plan_brain ?? null);
       }
       result.brains.push({ name: c.name, root, records: rows.length });
       insB.run(c.name, ord, root, rows.length, null);
@@ -585,8 +586,10 @@ export function priorities(hub: Brain, db: Db, opts: { prune?: boolean } = {}): 
   return { ranked, dropped, unknown };
 }
 
+/** `<brain>:<plan path>`, where brain holds the plan file: meta.plan_brain when a task lives in another
+ * brain than its plan (a plan in one repo with work in others), else the task's own brain. */
 function planKey(r: Record<string, unknown>): string | null {
-  return r.plan ? `${r.brain}:${r.plan}` : null;
+  return r.plan ? `${r.plan_brain ?? r.brain}:${r.plan}` : null;
 }
 
 // ---- plans as one item: `<brain>/plan:<plan path>` in priorities.md pins a whole plan ----
@@ -598,7 +601,7 @@ export function parsePlanKey(k: string): { brain: string; path: string } | null 
 
 /** A plan's open tasks, in phase order. */
 function planTasks(db: Db, brain: string, planPath: string): Record<string, unknown>[] {
-  const rows = db.prepare("SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked') AND brain = ? AND plan = ?").all(brain, planPath);
+  const rows = db.prepare("SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked') AND plan = ? AND coalesce(plan_brain, brain) = ?").all(planPath, brain);
   const NONE = Number.MAX_SAFE_INTEGER;
   return rows.sort((a, b) => (phaseNumber(String(a.title)) ?? NONE) - (phaseNumber(String(b.title)) ?? NONE) || String(a.created).localeCompare(String(b.created)));
 }
@@ -607,7 +610,7 @@ function planTasks(db: Db, brain: string, planPath: string): Record<string, unkn
 export function resolvePlanKey(db: Db, k: string): string {
   const pk = parsePlanKey(k);
   if (!pk) throw new Error(`${k} is not a plan key (use <brain>/plan:<plan id or path>)`);
-  const row = db.prepare("SELECT plan FROM items WHERE brain = ? AND plan IS NOT NULL AND (plan = ? OR plan_id = ?) AND type = 'task' AND status IN ('active','blocked') LIMIT 1").get(pk.brain, pk.path, pk.path);
+  const row = db.prepare("SELECT plan FROM items WHERE coalesce(plan_brain, brain) = ? AND plan IS NOT NULL AND (plan = ? OR plan_id = ?) AND type = 'task' AND status IN ('active','blocked') LIMIT 1").get(pk.brain, pk.path, pk.path);
   if (!row) throw new Error(`no open task in ${pk.brain} belongs to plan "${pk.path}"`);
   return `${pk.brain}/plan:${row.plan}`;
 }
@@ -642,20 +645,20 @@ export type InboxRow = PlanRow | (HubItem & { kind: 'task' });
 /** The inbox with each plan folded into one row (its next open phase, and how many are open). */
 export function inboxByPlan(hub: Brain, db: Db, opts: { brain?: string } = {}): InboxRow[] {
   const items = inbox(hub, db, opts);
-  const rows = db.prepare("SELECT key, plan FROM items WHERE plan IS NOT NULL AND type = 'task'").all();
-  const planOf = new Map(rows.map((r) => [String(r.key), String(r.plan)]));
+  const rows = db.prepare("SELECT key, brain, plan, plan_brain FROM items WHERE plan IS NOT NULL AND type = 'task'").all();
+  const planOf = new Map(rows.map((r) => [String(r.key), { key: planKey(r)!, brain: String(r.plan_brain ?? r.brain), path: String(r.plan) }]));
   const out: InboxRow[] = [];
   const done = new Set<string>();
   for (const i of items) {
     const p = planOf.get(i.key);
     if (!p) { out.push({ ...i, kind: 'task' }); continue; }
-    const key = `${i.brain}/plan:${p}`;
+    const key = `${p.brain}/plan:${p.path}`;
     if (done.has(key)) continue;
     done.add(key);
-    const t = planTitle(db, i.brain, p);
+    const t = planTitle(db, p.brain, p.path);
     out.push({
-      kind: 'plan', key, brain: i.brain, plan: p, title: t.title, file: t.file,
-      open_phases: items.filter((x) => planOf.get(x.key) === p && x.brain === i.brain).length, next: i,
+      kind: 'plan', key, brain: p.brain, plan: p.path, title: t.title, file: t.file,
+      open_phases: items.filter((x) => planOf.get(x.key)?.key === p.key).length, next: i,
       goal: i.goal, goal_title: i.goal_title, hub_goal: i.hub_goal, hub_goal_title: i.hub_goal_title,
     });
   }
@@ -701,6 +704,97 @@ function derivedOrder(hub: Brain, db: Db, gm: GoalMap): Record<string, unknown>[
     return 0;
   });
   return keyed.map((x) => x.r);
+}
+
+// ---- moving a record between brains ----
+
+export interface MoveResult {
+  from: string;
+  to: string;
+  file: string;
+  covers: string[];
+  pinned: boolean;
+}
+
+/**
+ * Move a record to another connected brain, keeping its id: write it there, mark the source
+ * dropped with a pointer, and repoint the hub (goal covers:, pins). Links that cannot resolve in
+ * the target become notes in the body: a parent, a goal it serves. A plan link stays resolvable
+ * through meta.plan_brain. Goals are not moved (their tasks would lose them).
+ */
+export async function moveRecord(hub: Brain, db: Db, key: string, toBrain: string, opts: { author?: string } = {}): Promise<MoveResult> {
+  const item = db.prepare('SELECT * FROM items WHERE key = ?').get(key);
+  if (!item) throw new Error(`no item "${key}" in the hub index (use <brain>/<id>)`);
+  const from = String(item.brain);
+  const id = String(item.id);
+  if (from === toBrain) throw new Error(`${key} is already in ${toBrain}`);
+  if (item.type === 'goal') throw new Error(`${key} is a goal; goals are not moved (the tasks serving it would lose it)`);
+  const target = db.prepare('SELECT root FROM brains WHERE name = ?').get(toBrain);
+  if (!target?.root) throw new Error(`no readable brain "${toBrain}" in this hub (see reinstall-hub status)`);
+  const source = db.prepare('SELECT root FROM brains WHERE name = ?').get(from);
+  if (!source?.root) throw new Error(`the brain "${from}" is not readable here`);
+  const to = openBrain(String(target.root));
+  const dir = to.typeDirs.get(String(item.type));
+  if (!dir) throw new Error(`${toBrain} has no "${item.type}" type`);
+  if (db.prepare('SELECT 1 FROM items WHERE brain = ? AND id = ?').get(toBrain, id)) throw new Error(`${toBrain} already has a record with id ${id}`);
+
+  const who = opts.author ?? 'reinstall-hub move';
+  const today = new Date().toISOString().slice(0, 10);
+  const rec = readRecordFile(String(item.file));
+  const fields: Fields = { ...rec.fields };
+  const notes: string[] = [`Moved from ${from} on ${today}.`];
+  if (fields.parent !== undefined) {
+    notes.push(`Its parent there is ${from}/${fields.parent}.`);
+    delete fields.parent;
+  }
+  if (fields.serves !== undefined) {
+    notes.push(`It served the goal ${from}/${fields.serves} there.`);
+    delete fields.serves;
+  }
+  const meta = (fields.meta && typeof fields.meta === 'object' ? { ...(fields.meta as Fields) } : undefined);
+  if (meta && meta.plan_path !== undefined && meta.plan_brain === undefined) meta.plan_brain = from;
+  if (meta) fields.meta = meta;
+  let body = rec.body.replace(/^\n*/, '');
+  body = `\n${notes.join(' ')}\n\n${body}`;
+  const logLine = `- ${today} ${who}: moved here from ${key}`;
+  body = /^## Log\s*$/m.test(body) ? `${body.replace(/\s*$/, '')}\n${logLine}\n` : `${body.replace(/\s*$/, '')}\n\n## Log\n${logLine}\n`;
+  mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${id}-${slugify(String(fields.title))}.md`);
+  writeRecordFile(file, fields, body);
+
+  const src = await openFresh(openBrain(String(source.root)));
+  try {
+    updateRecord(src, id, { status: 'dropped' }, `${who}: moved to ${toBrain}/${id}`);
+  } finally {
+    src.db.close();
+  }
+
+  // Repoint the hub: goal covers: lists and pins.
+  const newKey = `${toBrain}/${id}`;
+  const covers: string[] = [];
+  const goalsHere = db.prepare("SELECT id, key, covers FROM items WHERE brain = ? AND type = 'goal'").all(hub.config.name)
+    .filter((g) => (JSON.parse(String(g.covers ?? '[]')) as string[]).includes(key));
+  if (goalsHere.length) {
+    const h = await openFresh(hub);
+    try {
+      for (const g of goalsHere) {
+        const next = (JSON.parse(String(g.covers)) as string[]).map((k) => (k === key ? newKey : k));
+        updateRecord(h, String(g.id), { covers: next });
+        covers.push(String(g.key));
+      }
+    } finally {
+      h.db.close();
+    }
+  }
+  const file0 = readPrioritiesFile(hub);
+  const pinned = file0.tasks.includes(key);
+  if (pinned) {
+    const tasks = file0.tasks.map((k) => (k === key ? newKey : k));
+    const titles = titleMap(db, [...file0.goals, ...tasks]);
+    titles.set(newKey, String(fields.title));
+    writePrioritiesFile(hub, { goals: file0.goals, tasks }, titles);
+  }
+  return { from: key, to: newKey, file, covers, pinned };
 }
 
 // ---- projects: the order of connects: is the project ranking ----

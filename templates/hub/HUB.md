@@ -55,6 +55,7 @@ Goals are the outcomes the work is for, and the strongest signal for ranking.
 | see goals | `reinstall-hub goals --json` (ranked, then unranked, each with `open_tasks`, `measure`, `file`) |
 | rank a goal | `reinstall-hub place-goal <brain>/<id> --at N` (same positions as `place`) |
 | tie a hub goal to project work | `reinstall-hub cover <hub goal key> <brain>/<id>` (`uncover` removes) |
+| move a record to another brain | `reinstall-hub move <brain>/<id> <to-brain> --author "<who>"` (keeps the id; the source is dropped with a pointer; covers and pins follow) |
 | add a goal | in the hub or a project: `reinstall-brain new goal "<outcome>" --set done_when="..." --set measure="..."` |
 | tasks serving no goal | `reinstall-hub inbox --unserved --json` |
 | connect a repo | `reinstall-hub connect <path> [--name NAME]` (sets up its brain if it has none) |

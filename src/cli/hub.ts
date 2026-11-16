@@ -4,7 +4,7 @@ import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
   initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
-  projects, placeProject, inboxByPlan,
+  projects, placeProject, inboxByPlan, moveRecord,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
 import { expandHome, locateBrain, openBrain } from '../core/brain.js';
@@ -34,6 +34,7 @@ Work
   place-goal <brain/id> --top|--bottom|--at N|--above KEY|--below KEY
   unrank-goal <brain/id>
   cover <hub goal key> <brain/id>  a hub goal covers a project goal or task (uncover to remove)
+  move <brain/id> <to-brain> [--author WHO]   move a record to another brain (keeps its id; the hub follows)
   projects                         your projects in rank order, with open and pinned tasks
   place-project <name> --top|--bottom|--at N|--above NAME|--below NAME [--drop-pins]
   priorities [--pins] [--limit N]  every open task in order, pins first (--pins: only the pins)
@@ -235,6 +236,16 @@ async function main(argv: string[]): Promise<number> {
       case 'unrank-goal': {
         const ok = unrankGoal(hub, db, pos[0] ?? '');
         out({ removed: ok }, () => console.log(ok ? `removed ${pos[0]}` : `${pos[0]} was not ranked`));
+        return 0;
+      }
+      case 'move': {
+        if (pos.length < 2) throw new Error('usage: reinstall-hub move <brain/id> <to-brain> [--author WHO]');
+        const r = await moveRecord(hub, db, pos[0], pos[1], { author: a.value('author') });
+        out(r, () => {
+          console.log(`moved ${r.from} -> ${r.to}  (${r.file})`);
+          if (r.covers.length) console.log(`  repointed in ${r.covers.join(', ')}`);
+          if (r.pinned) console.log('  repointed its pin in priorities.md');
+        });
         return 0;
       }
       case 'cover':

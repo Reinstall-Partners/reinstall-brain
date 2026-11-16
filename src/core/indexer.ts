@@ -289,7 +289,7 @@ export function donePhases(planText: string): Set<string> {
 
 /** Open tasks titled "… Phase N …" whose plan (meta.plan_path) marks that phase done. */
 export function planDrift(brain: Brain, db: Db): PlanDrift[] {
-  const rows = db.prepare("SELECT id, path, title, status, json_extract(meta, '$.plan_path') AS plan FROM records WHERE type = 'task' AND status IN ('active','blocked') AND json_extract(meta, '$.plan_path') IS NOT NULL").all();
+  const rows = db.prepare("SELECT id, path, title, status, json_extract(meta, '$.plan_path') AS plan FROM records WHERE type = 'task' AND status IN ('active','blocked') AND json_extract(meta, '$.plan_path') IS NOT NULL AND json_extract(meta, '$.plan_brain') IS NULL").all();
   const cache = new Map<string, Set<string> | null>();
   const out: PlanDrift[] = [];
   for (const r of rows) {
