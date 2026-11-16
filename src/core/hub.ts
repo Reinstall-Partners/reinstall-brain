@@ -311,7 +311,7 @@ DROP TABLE IF EXISTS items;
 CREATE TABLE items (
   key TEXT PRIMARY KEY, brain TEXT NOT NULL, ord INTEGER NOT NULL, id TEXT NOT NULL, type TEXT, title TEXT,
   status TEXT, created TEXT, due TEXT, assignee TEXT, tags TEXT, file TEXT, serves TEXT, covers TEXT,
-  measure TEXT, done_when TEXT, plan TEXT
+  measure TEXT, done_when TEXT, plan TEXT, plan_id TEXT
 );
 CREATE TABLE IF NOT EXISTS brains (name TEXT PRIMARY KEY, ord INTEGER, root TEXT, records INTEGER, error TEXT);
 `;
@@ -333,7 +333,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM items; DELETE FROM brains;');
-    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     const insB = db.prepare('INSERT OR REPLACE INTO brains VALUES (?,?,?,?,?)');
     const sources = [{ name: hub.config.name, path: hub.root }, ...hub.config.connects];
     for (const [ord, c] of sources.entries()) {
@@ -345,10 +345,10 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
         continue;
       }
       const opened = await openFresh(openBrain(root));
-      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan FROM records").all();
+      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan, json_extract(meta, '$.plan_id') AS plan_id FROM records").all();
       opened.db.close();
       for (const r of rows) {
-        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null);
+        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null, r.plan_id == null ? null : String(r.plan_id));
       }
       result.brains.push({ name: c.name, root, records: rows.length });
       insB.run(c.name, ord, root, rows.length, null);
@@ -558,11 +558,20 @@ export function priorities(hub: Brain, db: Db, opts: { prune?: boolean } = {}): 
   const dropped: string[] = [];
   const unknown: string[] = [];
   const pins: Record<string, unknown>[] = [];
+  const seen = new Set<string>();
   for (const k of keys) {
+    const pk = parsePlanKey(k);
+    if (pk) {
+      // A pinned plan brings its open phases, in phase order.
+      const phases = planTasks(db, pk.brain, pk.path);
+      if (!phases.length) dropped.push(k);
+      for (const r of phases) if (!seen.has(String(r.key))) { seen.add(String(r.key)); pins.push(r); }
+      continue;
+    }
     const r = get.get(k);
     if (!r) unknown.push(k);
     else if (r.type !== 'task' || !OPEN.includes(String(r.status))) dropped.push(k);
-    else pins.push(r);
+    else if (!seen.has(k)) { seen.add(k); pins.push(r); }
   }
   if (opts.prune && dropped.length) {
     const keep = keys.filter((k) => !dropped.includes(k));
@@ -578,6 +587,79 @@ export function priorities(hub: Brain, db: Db, opts: { prune?: boolean } = {}): 
 
 function planKey(r: Record<string, unknown>): string | null {
   return r.plan ? `${r.brain}:${r.plan}` : null;
+}
+
+// ---- plans as one item: `<brain>/plan:<plan path>` in priorities.md pins a whole plan ----
+
+export function parsePlanKey(k: string): { brain: string; path: string } | null {
+  const m = /^([a-z0-9-]+)\/plan:(.+)$/.exec(k);
+  return m ? { brain: m[1], path: m[2] } : null;
+}
+
+/** A plan's open tasks, in phase order. */
+function planTasks(db: Db, brain: string, planPath: string): Record<string, unknown>[] {
+  const rows = db.prepare("SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked') AND brain = ? AND plan = ?").all(brain, planPath);
+  const NONE = Number.MAX_SAFE_INTEGER;
+  return rows.sort((a, b) => (phaseNumber(String(a.title)) ?? NONE) - (phaseNumber(String(b.title)) ?? NONE) || String(a.created).localeCompare(String(b.created)));
+}
+
+/** `<brain>/plan:<id or path>` -> `<brain>/plan:<path>`, the form priorities.md keeps; throws when no open task has that plan. */
+export function resolvePlanKey(db: Db, k: string): string {
+  const pk = parsePlanKey(k);
+  if (!pk) throw new Error(`${k} is not a plan key (use <brain>/plan:<plan id or path>)`);
+  const row = db.prepare("SELECT plan FROM items WHERE brain = ? AND plan IS NOT NULL AND (plan = ? OR plan_id = ?) AND type = 'task' AND status IN ('active','blocked') LIMIT 1").get(pk.brain, pk.path, pk.path);
+  if (!row) throw new Error(`no open task in ${pk.brain} belongs to plan "${pk.path}"`);
+  return `${pk.brain}/plan:${row.plan}`;
+}
+
+function planTitle(db: Db, brain: string, planPath: string): { title: string; file: string | null } {
+  const b = db.prepare('SELECT root FROM brains WHERE name = ?').get(brain);
+  const file = b?.root ? path.join(String(b.root), planPath) : null;
+  if (file && existsSync(file)) {
+    const h = /^#\s+(?:Plan:\s*)?(.+)$/m.exec(readFileSync(file, 'utf8'));
+    if (h) return { title: h[1].trim(), file };
+  }
+  return { title: path.basename(planPath, '.md'), file };
+}
+
+export interface PlanRow {
+  kind: 'plan';
+  key: string;
+  brain: string;
+  plan: string;
+  title: string;
+  file: string | null;
+  open_phases: number;
+  /** The plan's first open phase: the actionable task. */
+  next: HubItem;
+  goal: string | null;
+  goal_title: string | null;
+  hub_goal: string | null;
+  hub_goal_title: string | null;
+}
+export type InboxRow = PlanRow | (HubItem & { kind: 'task' });
+
+/** The inbox with each plan folded into one row (its next open phase, and how many are open). */
+export function inboxByPlan(hub: Brain, db: Db, opts: { brain?: string } = {}): InboxRow[] {
+  const items = inbox(hub, db, opts);
+  const rows = db.prepare("SELECT key, plan FROM items WHERE plan IS NOT NULL AND type = 'task'").all();
+  const planOf = new Map(rows.map((r) => [String(r.key), String(r.plan)]));
+  const out: InboxRow[] = [];
+  const done = new Set<string>();
+  for (const i of items) {
+    const p = planOf.get(i.key);
+    if (!p) { out.push({ ...i, kind: 'task' }); continue; }
+    const key = `${i.brain}/plan:${p}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    const t = planTitle(db, i.brain, p);
+    out.push({
+      kind: 'plan', key, brain: i.brain, plan: p, title: t.title, file: t.file,
+      open_phases: items.filter((x) => planOf.get(x.key) === p && x.brain === i.brain).length, next: i,
+      goal: i.goal, goal_title: i.goal_title, hub_goal: i.hub_goal, hub_goal_title: i.hub_goal_title,
+    });
+  }
+  return out;
 }
 
 /** "Plan 004 Phase 3: …" -> 3 (also 3b -> 3.5); null when the title names no phase. */
@@ -662,15 +744,20 @@ export function placeProject(hub: Brain, db: Db, name: string, pos: Position): {
 
 function titleMap(db: Db, keys: string[]): Map<string, string> {
   const get = db.prepare('SELECT title FROM items WHERE key = ?');
-  return new Map(keys.map((k) => [k, String(get.get(k)?.title ?? '')]));
+  return new Map(keys.map((k) => {
+    const pk = parsePlanKey(k);
+    return [k, pk ? `(plan) ${planTitle(db, pk.brain, pk.path).title}` : String(get.get(k)?.title ?? '')];
+  }));
 }
 
 /** Open tasks that are not pinned, in the derived order (see priorities()). */
 export function inbox(hub: Brain, db: Db, opts: { brain?: string; limit?: number } = {}): HubItem[] {
-  const pinned = new Set(readPriorities(hub));
+  const keys = readPriorities(hub);
+  const pinned = new Set(keys);
+  const pinnedPlans = new Set(keys.map(parsePlanKey).filter(Boolean).map((p) => `${p!.brain}:${p!.path}`));
   const gm = goalMap(hub, db);
   const out = derivedOrder(hub, db, gm)
-    .filter((r) => !pinned.has(String(r.key)) && (!opts.brain || r.brain === opts.brain))
+    .filter((r) => !pinned.has(String(r.key)) && !pinnedPlans.has(planKey(r) ?? '') && (!opts.brain || r.brain === opts.brain))
     .map((r) => toItem(r, gm));
   return opts.limit ? out.slice(0, opts.limit) : out;
 }
@@ -679,6 +766,14 @@ export type Position = { at: number } | { above: string } | { below: string } | 
 
 /** Put one task at a position in priorities.md (moving it if it is already ranked). */
 export function place(hub: Brain, db: Db, key: string, pos: Position): number {
+  if (parsePlanKey(key)) {
+    const canonical = resolvePlanKey(db, key);
+    const keys = readPriorities(hub).filter((k) => k !== canonical);
+    const i = positionIndex(keys, pos);
+    keys.splice(i, 0, canonical);
+    writePriorities(hub, keys, titleMap(db, keys));
+    return i + 1;
+  }
   const item = db.prepare('SELECT * FROM items WHERE key = ?').get(key);
   if (!item) throw new Error(`no item "${key}" in the hub index (run reinstall-hub index, and use <brain>/<id>)`);
   if (item.type !== 'task') throw new Error(`${key} is a ${item.type}; only tasks are ranked`);
@@ -691,6 +786,9 @@ export function place(hub: Brain, db: Db, key: string, pos: Position): number {
 
 export function unrank(hub: Brain, db: Db, key: string): boolean {
   const keys = readPriorities(hub);
+  if (parsePlanKey(key) && !keys.includes(key)) {
+    try { key = resolvePlanKey(db, key); } catch { /* finished plan: match by the key as given */ }
+  }
   if (!keys.includes(key)) return false;
   const keep = keys.filter((k) => k !== key);
   writePriorities(hub, keep, titleMap(db, keep));

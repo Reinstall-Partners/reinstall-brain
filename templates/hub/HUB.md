@@ -48,8 +48,9 @@ Goals are the outcomes the work is for, and the strongest signal for ranking.
 | see the projects in order | `reinstall-hub projects --json` (open and pinned tasks per project) |
 | rank a project | `reinstall-hub place-project <name> --top`, `--at N`, `--above <name>`, `--below <name>`, `--bottom` |
 | see every open task in order | `reinstall-hub priorities --json` (`pinned: true` on pins; `--pins`, `--limit N`) |
-| see the tasks not pinned | `reinstall-hub inbox --json` (`--brain NAME`, `--limit N`), in the same order |
+| see what is not pinned | `reinstall-hub inbox --json` (`--brain NAME`, `--limit N`), in the same order: each plan is one row (`kind: plan`, its `next` phase, `open_phases`); `--flat` lists every task |
 | pin a task | `reinstall-hub place <brain>/<id> --top`, `--at N`, `--above <key>`, `--below <key>`, `--bottom` |
+| pin a whole plan | `reinstall-hub place <brain>/plan:<plan id or path> --top` (its open phases, in order) |
 | unpin a task | `reinstall-hub unrank <brain>/<id>` |
 | see goals | `reinstall-hub goals --json` (ranked, then unranked, each with `open_tasks`, `measure`, `file`) |
 | rank a goal | `reinstall-hub place-goal <brain>/<id> --at N` (same positions as `place`) |

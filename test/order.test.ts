@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { initBrain, openFresh, createRecord } from '../src/core/ops.js';
+import { initBrain, openFresh, createRecord, updateRecord } from '../src/core/ops.js';
 import { openBrain } from '../src/core/brain.js';
 import {
   locateHub, openHubDb, indexHub, priorities, inbox, place, placeGoal, placeProject, projects, phaseNumber, cover,
+  inboxByPlan, unrank, readPriorities,
 } from '../src/core/hub.js';
 
 function repo(name: string, base: string): string {
@@ -100,6 +101,55 @@ describe('derived order', () => {
     expect(yaml.indexOf('name: widgets')).toBeLessThan(yaml.indexOf('name: acme'));
     expect(yaml).toMatch(/name: acme\n\s+path: .*acme/);
     expect(() => placeProject(hub, db, 'nope', { top: true })).toThrow(/no project/);
+    db.close();
+  });
+});
+
+describe('plans as one item', () => {
+  it('folds a plan into one inbox row, advances it, and pins a whole plan', async () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'rb-plan-'));
+    const acme = repo('acme', base);
+    const hubRoot = repo('the-hub', base);
+    writeFileSync(path.join(hubRoot, 'brain', 'brain.yaml'), `format: 1\nname: the-hub\nhub: true\nconnects:\n  - name: acme\n    path: ${acme}\n`);
+    const planPath = 'brain/plans/004_2026-01-01_billing.md';
+    mkdirSync(path.join(acme, 'brain', 'plans'), { recursive: true });
+    writeFileSync(path.join(acme, planPath), '# Plan: Billing rebuild\n\nBody.\n');
+    let o = await openFresh(openBrain(acme));
+    const meta = { meta: { plan_path: planPath, plan_id: '004' } };
+    const phases = [];
+    for (let n = 9; n >= 1; n--) phases.unshift(createRecord(o, { type: 'task', title: `Plan 004 Phase ${n}: Step ${n}`, extra: { ...meta, created: day(10 - n) } }));
+    const loose = createRecord(o, { type: 'task', title: 'Loose task', extra: { created: day(20) } });
+    o.db.close();
+
+    const hub = locateHub(hubRoot);
+    const db = await openHubDb(hub);
+    await indexHub(hub, db);
+    let rows = inboxByPlan(hub, db);
+    expect(rows.map((r) => r.kind)).toEqual(['plan', 'task']);
+    const plan = rows[0] as any;
+    expect(plan).toMatchObject({ key: `acme/plan:${planPath}`, title: 'Billing rebuild', open_phases: 9 });
+    expect(plan.next.title).toBe('Plan 004 Phase 1: Step 1');
+
+    o = await openFresh(openBrain(acme));
+    updateRecord(o, phases[0].id, { status: 'done' });
+    o.db.close();
+    await indexHub(hub, db);
+    rows = inboxByPlan(hub, db);
+    expect((rows[0] as any).next.title).toBe('Plan 004 Phase 2: Step 2');
+    expect((rows[0] as any).open_phases).toBe(8);
+
+    // Pin by plan id; the file keeps the path form, and the plan's phases lead the order.
+    place(hub, db, 'acme/plan:004', { top: true });
+    expect(readPriorities(hub)).toEqual([`acme/plan:${planPath}`]);
+    expect(readFileSync(path.join(hubRoot, 'brain', 'priorities.md'), 'utf8')).toContain('(plan) Billing rebuild');
+    const ranked = priorities(hub, db).ranked;
+    expect(ranked.slice(0, 8).every((i) => i.pinned && i.plan === `acme:${planPath}`)).toBe(true);
+    expect(ranked[8]).toMatchObject({ key: `acme/${loose.id}`, pinned: false });
+    expect(inboxByPlan(hub, db).map((r) => r.kind)).toEqual(['task']);
+    expect(() => place(hub, db, 'acme/plan:999', { top: true })).toThrow(/no open task/);
+
+    expect(unrank(hub, db, 'acme/plan:004')).toBe(true);
+    expect(readPriorities(hub)).toEqual([]);
     db.close();
   });
 });

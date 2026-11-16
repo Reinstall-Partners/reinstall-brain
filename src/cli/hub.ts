@@ -4,7 +4,7 @@ import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
   initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
-  projects, placeProject,
+  projects, placeProject, inboxByPlan,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
 import { expandHome, locateBrain, openBrain } from '../core/brain.js';
@@ -37,8 +37,10 @@ Work
   projects                         your projects in rank order, with open and pinned tasks
   place-project <name> --top|--bottom|--at N|--above NAME|--below NAME [--drop-pins]
   priorities [--pins] [--limit N]  every open task in order, pins first (--pins: only the pins)
-  inbox [--brain NAME] [--unserved] [--limit N]   open tasks not pinned, in order (--unserved: serving no goal)
+  inbox [--brain NAME] [--unserved] [--limit N] [--flat]   what is not pinned, in order: each plan is one row
+                                   (its next open phase); --flat lists every task; --unserved: serving no goal
   place <brain/id> --top|--bottom|--at N|--above KEY|--below KEY   pin a task ahead of the derived order
+  place <brain>/plan:<id|path> …   pin a whole plan (its open phases, in order)
   unrank <brain/id>                unpin a task
   seed                             append tasks ranked in migrated brains (legacy focus/priority)
   status                           each connected brain: records and problems
@@ -146,12 +148,25 @@ async function main(argv: string[]): Promise<number> {
         return 0;
       }
       case 'inbox': {
-        let items = inbox(hub, db, { brain: a.value('brain') });
-        if (a.flag('unserved')) items = items.filter((i) => !i.goal);
-        if (a.value('limit')) items = items.slice(0, Number(a.value('limit')));
-        out(items, () => {
-          for (const i of items) console.log(`${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
-          console.log(`${items.length} open task(s), not pinned`);
+        if (a.flag('flat')) {
+          let items = inbox(hub, db, { brain: a.value('brain') });
+          if (a.flag('unserved')) items = items.filter((i) => !i.goal);
+          if (a.value('limit')) items = items.slice(0, Number(a.value('limit')));
+          out(items, () => {
+            for (const i of items) console.log(`${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
+            console.log(`${items.length} open task(s), not pinned`);
+          });
+          return 0;
+        }
+        let rows = inboxByPlan(hub, db, { brain: a.value('brain') });
+        if (a.flag('unserved')) rows = rows.filter((i) => !i.goal);
+        if (a.value('limit')) rows = rows.slice(0, Number(a.value('limit')));
+        out(rows, () => {
+          for (const i of rows) {
+            if (i.kind === 'plan') console.log(`${i.key.padEnd(30)} [plan, ${i.open_phases} open] ${i.title}\n${''.padEnd(32)}next: ${i.next.key} ${i.next.title}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
+            else console.log(`${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
+          }
+          console.log(`${rows.length} item(s) not pinned: ${rows.filter((r) => r.kind === 'plan').length} plan(s), ${rows.filter((r) => r.kind === 'task').length} task(s)`);
         });
         return 0;
       }

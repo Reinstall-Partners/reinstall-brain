@@ -63,9 +63,9 @@ reinstall-hub cover <hub goal key> <key>   # a hub goal counts a project goal or
 reinstall-hub projects --json              # projects in rank order: open and pinned tasks each
 reinstall-hub place-project <name> --at N | --top | --bottom | --above <name> | --below <name> [--drop-pins]
 reinstall-hub priorities --json [--limit N] # every open task in order (pins first): rank, pinned, plan, goal, file
-reinstall-hub inbox --json [--brain NAME]  # the tasks not pinned, in the same order
+reinstall-hub inbox --json [--brain NAME]  # what is not pinned, in order; a plan is one row (kind: plan, next, open_phases)
 reinstall-hub inbox --unserved --json      # tasks not pinned that serve no goal
-reinstall-hub place <key> --at N | --top | --bottom | --above <key> | --below <key>   # pin a task
+reinstall-hub place <key> --at N | --top | --bottom | --above <key> | --below <key>   # pin a task, or a plan: <brain>/plan:<id>
 reinstall-hub unrank <key>                 # unpin it
 reinstall-hub init [folder] [--name NAME] [--default]
 reinstall-hub connect <repo> [--name NAME]
