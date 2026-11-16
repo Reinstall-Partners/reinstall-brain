@@ -7,7 +7,7 @@ import { openDb } from '../core/sqlite.js';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
 import { locateBrain, requireBrain } from '../core/brain.js';
-import { lintBrain, refresh } from '../core/indexer.js';
+import { lintBrain, refresh, planDrift } from '../core/indexer.js';
 import {
   openFresh, findRecord, listRecords, searchRecords, runSql, createRecord, updateRecord, supersede,
   initBrain, defaultBrainName, goalsReport, type RecordRow,
@@ -41,7 +41,8 @@ Maintain
   index [--rebuild]                  refresh the index (every command does this first)
   migrate [--from cowork/brain/BRAIN.db] [--dry-run] [--move-docs]
                                      convert a TB Claude Kit brain into records (one-time)
-  lint                               check every record; exit 1 on errors
+  lint [--fix] [--author WHO]        check every record; exit 1 on errors. --fix closes phase tasks
+                                     whose plan file marks the phase done
   where                              print the brain this folder uses
   kitdb <name> "<sql>" [--json]      read/write SQL on a kit's own live-state database, brain/.local/<name>.db
   doctor                             check this machine can run the brain
@@ -273,6 +274,14 @@ async function main(argv: string[]): Promise<number> {
         return (r.written && errors.length) || r.conflicts.length ? 1 : 0;
       }
       case 'lint': {
+        if (a.flag('fix')) {
+          // The one fix lint makes: close phase tasks their plan file already marks done.
+          for (const d of planDrift(brain, opened.db)) {
+            updateRecord(opened, d.id, { status: 'done' }, `${a.value('author') ?? 'reinstall-brain lint --fix'}: closed, ${d.plan} marks phase ${d.phase} done`);
+            if (!json) console.log(`closed ${d.id}  ${d.title}`);
+          }
+          await refresh(brain, opened.db);
+        }
         const issues = lintBrain(brain, opened.db);
         const errors = issues.filter((i) => i.level === 'error').length;
         out({ errors, warnings: issues.length - errors, issues }, () => {

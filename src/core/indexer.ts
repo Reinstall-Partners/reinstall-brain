@@ -257,5 +257,51 @@ export function lintBrain(brain: Brain, db: Db): LintIssue[] {
       if (!ids.has(String(b))) issues.push({ path: String(r.path), level: 'warning', message: `blocked_by "${b}" does not match any record` });
     }
   }
+  for (const d of planDrift(brain, db)) {
+    issues.push({ path: d.path, level: 'warning', message: `phase ${d.phase} of ${d.plan} is marked done there, but this task is still ${d.status} (lint --fix closes it)` });
+  }
   return issues;
+}
+
+// ---- plan drift: a plan file marks a phase done while its phase task stays open ----
+
+export interface PlanDrift {
+  id: string;
+  path: string;
+  title: string;
+  status: string;
+  plan: string;
+  phase: string;
+}
+
+/** Phase numbers (as written, "3" or "3b") a plan file marks `**Status:** done` under their phase heading. */
+export function donePhases(planText: string): Set<string> {
+  const done = new Set<string>();
+  let phase: string | null = null;
+  for (const line of planText.split(/\r?\n/)) {
+    const h = /^#{2,4}\s+Phase\s+(\d+[a-z]?)\b/i.exec(line);
+    if (h) { phase = h[1].toLowerCase(); continue; }
+    if (/^#{1,4}\s/.test(line)) { phase = null; continue; }
+    if (phase && /^\*\*Status:\*\*\s*done\b/i.test(line.trim())) done.add(phase);
+  }
+  return done;
+}
+
+/** Open tasks titled "… Phase N …" whose plan (meta.plan_path) marks that phase done. */
+export function planDrift(brain: Brain, db: Db): PlanDrift[] {
+  const rows = db.prepare("SELECT id, path, title, status, json_extract(meta, '$.plan_path') AS plan FROM records WHERE type = 'task' AND status IN ('active','blocked') AND json_extract(meta, '$.plan_path') IS NOT NULL").all();
+  const cache = new Map<string, Set<string> | null>();
+  const out: PlanDrift[] = [];
+  for (const r of rows) {
+    const m = /\bPhase\s+(\d+[a-z]?)\b/i.exec(String(r.title));
+    if (!m) continue;
+    const plan = String(r.plan);
+    if (!cache.has(plan)) {
+      const file = path.join(brain.root, plan);
+      cache.set(plan, existsSync(file) ? donePhases(readFileSync(file, 'utf8')) : null);
+    }
+    const phase = m[1].toLowerCase();
+    if (cache.get(plan)?.has(phase)) out.push({ id: String(r.id), path: String(r.path), title: String(r.title), status: String(r.status), plan, phase });
+  }
+  return out;
 }
