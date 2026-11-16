@@ -144,7 +144,7 @@ async function main(argv: string[]): Promise<number> {
         if (a.value('limit')) r.ranked = r.ranked.slice(0, Number(a.value('limit')));
         out(r, () => {
           for (const i of r.ranked) console.log(`${String(i.rank).padStart(3)}.${i.pinned ? '*' : ' '} ${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.due ? `  (due ${i.due})` : ''}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
-          if (!r.ranked.length) console.log('(no open tasks)');
+          if (!r.ranked.length) console.log(a.flag('pins') ? '(nothing pinned: the order comes from projects, goals and plans)' : '(no open tasks)');
           else if (r.ranked.some((i) => i.pinned)) console.log('\n* pinned (reinstall-hub unrank <key> to unpin)');
           if (r.dropped.length) console.log(`\ndropped ${r.dropped.length} finished task(s) from priorities.md`);
           for (const u of r.unknown) console.log(`warning: ${u} is in priorities.md but not in any connected brain`);
