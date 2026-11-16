@@ -118,6 +118,8 @@ At the hub layer, a record is named `<brain name>/<id>`, for example `web-app/7f
 | `importance` | no | integer 0–10 | How much it matters, for notes and insights. Not a rank |
 | `done_when` | no | string | When a goal counts as reached (goals) |
 | `measure` | no | string | How to read a goal's progress: a command, a query or a count (goals) |
+| `ranking` | no | `off` | Keeps a goal out of a hub's ranking on purpose (goals) |
+| `managed_by` | no | string | The tool that creates, re-dates and closes this record; people and hubs leave its status to that tool (tasks) |
 | `covers` | no | list of `<brain>/<id>` | Project goals and tasks a hub goal counts (hub goals) |
 | `docs` | no | list of paths | Long documents this record points to, relative to `brain/` |
 | `legacy_id` | no | string | The record's id in a system it was migrated from |
