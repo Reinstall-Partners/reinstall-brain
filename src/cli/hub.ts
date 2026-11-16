@@ -4,14 +4,16 @@ import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
   initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
+  projects, placeProject,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
 import { expandHome, locateBrain, openBrain } from '../core/brain.js';
 
 const HELP = `reinstall-hub ${VERSION}: the layer that connects every project's brain.
 
-A hub is a brain whose brain.yaml lists other brains under connects:. Its priorities.md is your
-strict ranking of tasks across all of them (line order is the rank).
+A hub is a brain whose brain.yaml lists other brains under connects:. You rank projects (the order
+of connects:) and goals; every open task then takes its place: project, then goal, then plan
+(phases together, in order), then due date and age. Pin a task (place) to put it ahead of that.
 
 A machine can have many hubs. A command acts on --hub <name|path>, else the hub folder you are in,
 else REINSTALL_HUB, else the default hub (reinstall-hub use).
@@ -32,10 +34,12 @@ Work
   place-goal <brain/id> --top|--bottom|--at N|--above KEY|--below KEY
   unrank-goal <brain/id>
   cover <hub goal key> <brain/id>  a hub goal covers a project goal or task (uncover to remove)
-  priorities [--all]               your ranked tasks (finished ones drop off the file)
-  inbox [--brain NAME] [--unserved] [--limit N]   open tasks not ranked yet (--unserved: serving no goal)
-  place <brain/id> --top|--bottom|--at N|--above KEY|--below KEY
-  unrank <brain/id>
+  projects                         your projects in rank order, with open and pinned tasks
+  place-project <name> --top|--bottom|--at N|--above NAME|--below NAME [--drop-pins]
+  priorities [--pins] [--limit N]  every open task in order, pins first (--pins: only the pins)
+  inbox [--brain NAME] [--unserved] [--limit N]   open tasks not pinned, in order (--unserved: serving no goal)
+  place <brain/id> --top|--bottom|--at N|--above KEY|--below KEY   pin a task ahead of the derived order
+  unrank <brain/id>                unpin a task
   seed                             append tasks ranked in migrated brains (legacy focus/priority)
   status                           each connected brain: records and problems
   version
@@ -130,9 +134,12 @@ async function main(argv: string[]): Promise<number> {
       }
       case 'priorities': {
         const r = priorities(hub, db, { prune: true });
+        if (a.flag('pins')) r.ranked = r.ranked.filter((i) => i.pinned);
+        if (a.value('limit')) r.ranked = r.ranked.slice(0, Number(a.value('limit')));
         out(r, () => {
-          for (const i of r.ranked) console.log(`${String(i.rank).padStart(3)}. ${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.due ? `  (due ${i.due})` : ''}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
-          if (!r.ranked.length) console.log('(nothing ranked yet: see reinstall-hub inbox, then place)');
+          for (const i of r.ranked) console.log(`${String(i.rank).padStart(3)}.${i.pinned ? '*' : ' '} ${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.due ? `  (due ${i.due})` : ''}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
+          if (!r.ranked.length) console.log('(no open tasks)');
+          else if (r.ranked.some((i) => i.pinned)) console.log('\n* pinned (reinstall-hub unrank <key> to unpin)');
           if (r.dropped.length) console.log(`\ndropped ${r.dropped.length} finished task(s) from priorities.md`);
           for (const u of r.unknown) console.log(`warning: ${u} is in priorities.md but not in any connected brain`);
         });
@@ -144,7 +151,7 @@ async function main(argv: string[]): Promise<number> {
         if (a.value('limit')) items = items.slice(0, Number(a.value('limit')));
         out(items, () => {
           for (const i of items) console.log(`${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
-          console.log(`${items.length} unranked open task(s)`);
+          console.log(`${items.length} open task(s), not pinned`);
         });
         return 0;
       }
@@ -158,6 +165,33 @@ async function main(argv: string[]): Promise<number> {
           : { bottom: true };
         const rank = place(hub, db, key, p);
         out({ key, rank }, () => console.log(`${key} is #${rank}`));
+        return 0;
+      }
+      case 'projects': {
+        const r = projects(hub, db);
+        out(r, () => {
+          for (const p of r) console.log(`${String(p.rank).padStart(3)}. ${p.name.padEnd(28)} ${String(p.open_tasks).padStart(4)} open${p.pins ? `, ${p.pins} pinned` : ''}${p.error ? `   ${p.error}` : ''}`);
+        });
+        return 0;
+      }
+      case 'place-project': {
+        const name = pos[0];
+        if (!name) throw new Error('usage: reinstall-hub place-project <name> --top|--bottom|--at N|--above NAME|--below NAME [--drop-pins]');
+        const p: Position = a.flag('top') ? { top: true }
+          : a.value('at') ? { at: Number(a.value('at')) }
+          : a.value('above') ? { above: a.value('above')! }
+          : a.value('below') ? { below: a.value('below')! }
+          : { bottom: true };
+        const r = placeProject(hub, db, name, p);
+        let pins = r.pins;
+        if (a.flag('drop-pins') && pins.length) {
+          for (const k of pins) unrank(hub, db, k);
+          pins = [];
+        }
+        out({ name, rank: r.rank, pins }, () => {
+          console.log(`${name} is project #${r.rank}`);
+          if (pins.length) console.log(`${pins.length} pinned task(s) still go ahead of the new order: ${pins.join(', ')}\n(reinstall-hub unrank <key>, or re-run with --drop-pins)`);
+        });
         return 0;
       }
       case 'goals': {

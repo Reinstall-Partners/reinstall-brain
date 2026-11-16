@@ -1,5 +1,6 @@
 // A hub is a brain whose brain.yaml lists other brains under `connects`. It adds one thing a brain
-// never holds: priorities.md, the owner's strict ranking of tasks across every connected brain.
+// never holds: the owner's ranking. Projects are ranked by the order of connects:, goals and pinned
+// tasks by priorities.md; every other open task takes its place from those (see priorities()).
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -43,6 +44,10 @@ export interface GoalItem extends HubItem {
 
 export interface Ranked extends HubItem {
   rank: number;
+  /** A hand-placed task (a line in priorities.md): it goes ahead of the derived order. */
+  pinned: boolean;
+  /** The plan this task is a phase of (`<brain>:<plan path>`), when it has one. */
+  plan: string | null;
 }
 
 // ---- the machine's hubs (D20: many hubs on one machine) ----
@@ -306,7 +311,7 @@ DROP TABLE IF EXISTS items;
 CREATE TABLE items (
   key TEXT PRIMARY KEY, brain TEXT NOT NULL, ord INTEGER NOT NULL, id TEXT NOT NULL, type TEXT, title TEXT,
   status TEXT, created TEXT, due TEXT, assignee TEXT, tags TEXT, file TEXT, serves TEXT, covers TEXT,
-  measure TEXT, done_when TEXT
+  measure TEXT, done_when TEXT, plan TEXT
 );
 CREATE TABLE IF NOT EXISTS brains (name TEXT PRIMARY KEY, ord INTEGER, root TEXT, records INTEGER, error TEXT);
 `;
@@ -328,7 +333,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM items; DELETE FROM brains;');
-    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     const insB = db.prepare('INSERT OR REPLACE INTO brains VALUES (?,?,?,?,?)');
     const sources = [{ name: hub.config.name, path: hub.root }, ...hub.config.connects];
     for (const [ord, c] of sources.entries()) {
@@ -340,10 +345,10 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
         continue;
       }
       const opened = await openFresh(openBrain(root));
-      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when FROM records").all();
+      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan FROM records").all();
       opened.db.close();
       for (const r of rows) {
-        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null);
+        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null);
       }
       result.brains.push({ name: c.name, root, records: rows.length });
       insB.run(c.name, ord, root, rows.length, null);
@@ -476,7 +481,7 @@ export function prioritiesPath(hub: Brain): string {
 }
 
 const LINE = /^\s*(?:\d+[.)]|[-*])\s+([a-z0-9-]+\/[^\s]+)/;
-const HEADER = '# Priorities\n\nLine order is the rank: no two items are equal. Edit by moving lines, or with `reinstall-hub place` (tasks) and `reinstall-hub place-goal` (goals).\n';
+const HEADER = '# Priorities\n\nGoals are ranked here (line order is the rank). Tasks under `## Tasks` are pinned ahead of the derived\norder (project, goal, plan, due date). Edit by moving lines, or with `reinstall-hub place-goal` and\n`reinstall-hub place`. Projects are ranked by the order of `connects:` in brain.yaml.\n';
 
 /** priorities.md holds an optional `## Goals` section (ranked goals) and the ranked tasks (under `## Tasks`, or anywhere else). */
 export function readPrioritiesFile(hub: Brain): { goals: string[]; tasks: string[] } {
@@ -536,25 +541,123 @@ function positionIndex(keys: string[], pos: Position): number {
   return 'above' in pos ? j : j + 1;
 }
 
-/** The ranked list, with items no longer open dropped from the file. */
+/**
+ * The order of every open task (D1 of the hub's design): pinned tasks first, in the order of
+ * priorities.md; then everything else, derived, by
+ *   1. project order (the hub's own brain, then `connects:` in file order),
+ *   2. the rank of the goal the task rolls up to (ranked goals first, then unranked goals, then none),
+ *   3. its plan: a plan's open phases stay together, in phase order, placed by the plan's earliest
+ *      due date and then its first open phase's age; a task outside any plan is a group of one,
+ *   4. due date, then age.
+ * Finished pins are dropped from the file with `prune`.
+ */
 export function priorities(hub: Brain, db: Db, opts: { prune?: boolean } = {}): { ranked: Ranked[]; dropped: string[]; unknown: string[] } {
   const keys = readPriorities(hub);
   const get = db.prepare('SELECT * FROM items WHERE key = ?');
   const gm = goalMap(hub, db);
-  const ranked: Ranked[] = [];
   const dropped: string[] = [];
   const unknown: string[] = [];
+  const pins: Record<string, unknown>[] = [];
   for (const k of keys) {
     const r = get.get(k);
     if (!r) unknown.push(k);
-    else if (!OPEN.includes(String(r.status))) dropped.push(k);
-    else ranked.push({ ...toItem(r, gm), rank: ranked.length + 1 });
+    else if (r.type !== 'task' || !OPEN.includes(String(r.status))) dropped.push(k);
+    else pins.push(r);
   }
   if (opts.prune && dropped.length) {
     const keep = keys.filter((k) => !dropped.includes(k));
     writePriorities(hub, keep, titleMap(db, keep));
   }
+  const pinned = new Set(pins.map((r) => String(r.key)));
+  const rest = derivedOrder(hub, db, gm).filter((r) => !pinned.has(String(r.key)));
+  const ranked = [...pins.map((r) => ({ r, pinned: true })), ...rest.map((r) => ({ r, pinned: false }))].map(({ r, pinned: p }, i) => ({
+    ...toItem(r, gm), rank: i + 1, pinned: p, plan: planKey(r),
+  }));
   return { ranked, dropped, unknown };
+}
+
+function planKey(r: Record<string, unknown>): string | null {
+  return r.plan ? `${r.brain}:${r.plan}` : null;
+}
+
+/** "Plan 004 Phase 3: …" -> 3 (also 3b -> 3.5); null when the title names no phase. */
+export function phaseNumber(title: string): number | null {
+  const m = /\bphase\s+(\d+)([a-z])?\b/i.exec(title);
+  if (!m) return null;
+  return Number(m[1]) + (m[2] ? (m[2].toLowerCase().charCodeAt(0) - 96) / 10 : 0);
+}
+
+/** Every open task in the derived order (no pins): see priorities(). */
+function derivedOrder(hub: Brain, db: Db, gm: GoalMap): Record<string, unknown>[] {
+  const rows = db.prepare("SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked')").all();
+  const goalRank = new Map(readPrioritiesFile(hub).goals.map((k, i) => [k, i]));
+  const NONE = Number.MAX_SAFE_INTEGER;
+  // Project rank from the live connects: list (the index may predate a reorder); the hub's own brain first.
+  const projectRank = new Map<string, number>([[hub.config.name, -1], ...hub.config.connects.map((c, i) => [c.name, i] as [string, number])]);
+  const rankOf = (r: Record<string, unknown>): number => {
+    const g = gm.resolve(String(r.key), String(r.brain), (r.serves as string) ?? null);
+    const ranked = [g.hub_goal, g.goal].map((k) => (k ? goalRank.get(k) : undefined)).find((x) => x !== undefined);
+    if (ranked !== undefined) return ranked;
+    return g.goal || g.hub_goal ? NONE - 1 : NONE;
+  };
+  // A plan's phases form one group, placed by the group's earliest due date, then its oldest phase.
+  const groups = new Map<string, { due: string; created: string }>();
+  const groupOf = (r: Record<string, unknown>) => planKey(r) ?? `task:${r.key}`;
+  for (const r of rows) {
+    const g = groupOf(r);
+    const due = (r.due as string) || '9999';
+    const cur = groups.get(g);
+    groups.set(g, { due: cur && cur.due < due ? cur.due : due, created: cur && cur.created < String(r.created) ? cur.created : String(r.created) });
+  }
+  const keyed = rows.map((r) => {
+    const g = groupOf(r);
+    const gi = groups.get(g)!;
+    return { r, k: [projectRank.get(String(r.brain)) ?? NONE, rankOf(r), gi.due, gi.created, g, phaseNumber(String(r.title)) ?? NONE, (r.due as string) || '9999', String(r.created)] as (number | string)[] };
+  });
+  keyed.sort((a, b) => {
+    for (let i = 0; i < a.k.length; i++) if (a.k[i] !== b.k[i]) return a.k[i] < b.k[i] ? -1 : 1;
+    return 0;
+  });
+  return keyed.map((x) => x.r);
+}
+
+// ---- projects: the order of connects: is the project ranking ----
+
+export interface ProjectItem {
+  name: string;
+  rank: number;
+  path: string | null;
+  open_tasks: number;
+  pins: number;
+  error: string | null;
+}
+
+/** The projects in rank order (the hub's own brain is not one of them), with their open and pinned task counts. */
+export function projects(hub: Brain, db: Db): ProjectItem[] {
+  const pins = new Set(readPriorities(hub));
+  const count = db.prepare("SELECT key FROM items WHERE brain = ? AND type = 'task' AND status IN ('active','blocked')");
+  const err = db.prepare('SELECT error FROM brains WHERE name = ?');
+  return hub.config.connects.map((c, i) => {
+    const keys = count.all(c.name).map((r) => String(r.key));
+    return { name: c.name, rank: i + 1, path: c.path ?? null, open_tasks: keys.length, pins: keys.filter((k) => pins.has(k)).length, error: (err.get(c.name)?.error as string) ?? null };
+  });
+}
+
+/** Move a project in connects: (its rank). Returns its new rank and the pins that still go ahead of the derived order. */
+export function placeProject(hub: Brain, db: Db, name: string, pos: Position): { rank: number; pins: string[] } {
+  const names = hub.config.connects.map((c) => c.name);
+  if (!names.includes(name)) throw new Error(`no project "${name}" in this hub (see reinstall-hub projects)`);
+  const others = names.filter((n) => n !== name);
+  const i = positionIndex(others, pos);
+  others.splice(i, 0, name);
+  editYaml(hub, (doc) => {
+    const seq = doc.get('connects') as any;
+    const items = [...seq.items];
+    const byName = new Map(items.map((n: any) => [n.get('name'), n]));
+    seq.items = others.map((n) => byName.get(n));
+  });
+  hub.config.connects = others.map((n) => hub.config.connects.find((c) => c.name === n)!);
+  return { rank: i + 1, pins: readPriorities(hub) };
 }
 
 function titleMap(db: Db, keys: string[]): Map<string, string> {
@@ -562,16 +665,13 @@ function titleMap(db: Db, keys: string[]): Map<string, string> {
   return new Map(keys.map((k) => [k, String(get.get(k)?.title ?? '')]));
 }
 
-/** Open tasks in any connected brain that are not ranked yet, in project order, then oldest first. */
+/** Open tasks that are not pinned, in the derived order (see priorities()). */
 export function inbox(hub: Brain, db: Db, opts: { brain?: string; limit?: number } = {}): HubItem[] {
-  const ranked = new Set(readPriorities(hub));
-  const rows = db
-    .prepare(
-      `SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked') ${opts.brain ? 'AND brain = ?' : ''} ORDER BY ord, created`,
-    )
-    .all(...(opts.brain ? [opts.brain] : []));
+  const pinned = new Set(readPriorities(hub));
   const gm = goalMap(hub, db);
-  const out = rows.map((r) => toItem(r, gm)).filter((i) => !ranked.has(i.key));
+  const out = derivedOrder(hub, db, gm)
+    .filter((r) => !pinned.has(String(r.key)) && (!opts.brain || r.brain === opts.brain))
+    .map((r) => toItem(r, gm));
   return opts.limit ? out.slice(0, opts.limit) : out;
 }
 

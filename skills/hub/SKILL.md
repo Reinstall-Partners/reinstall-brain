@@ -17,9 +17,10 @@ argument-hint: "[setup|goals|prioritize|today|connect <repo>|status|sync]"
 
 # Hub
 
-A hub is a brain that connects other brains: `brain/brain.yaml` lists them under `connects:`, and
-`brain/priorities.md` is the owner's strict ranking of tasks across all of them (line order is the
-rank). `brain/HUB.md` is the full guide, including how to do all of this with plain files when the
+A hub is a brain that connects other brains: `brain/brain.yaml` lists them under `connects:`. The owner
+ranks **projects** (the order of `connects:`) and **goals** (`brain/priorities.md`); every open task
+takes its place from those (project, then goal, then plan phases in order, then due date and age).
+A task the owner wants ahead of that is **pinned** (`## Tasks` in `priorities.md`). `brain/HUB.md` is the full guide, including how to do all of this with plain files when the
 CLI is missing. A machine can hold many hubs; commands act on the hub folder you are in, or
 `--hub <name>`.
 
@@ -30,7 +31,7 @@ Optional argument: `$ARGUMENTS`
 - (empty) in a hub: **Overview**, then offer the next step. Not in a hub: **Setup**.
 - `setup`: **Setup**: create or adopt a hub and connect repos
 - `goals`: **Goals**: set, rank and check the owner's goals
-- `prioritize`: **Prioritize**: rank the inbox in short rounds of choices
+- `prioritize`: **Prioritize**: rank projects, clear dead work, pin what must jump the line
 - `today`: **Today**: a plan for the day from the top of the ranking
 - `connect <repo>`: **Connect** one repo
 - `status`: **Status**: every connected brain, and what is missing
@@ -59,11 +60,13 @@ reinstall-hub status --json                # connected brains, record counts, pr
 reinstall-hub goals --json                 # ranked goals, then unranked open goals; open_tasks, measure, file
 reinstall-hub place-goal <key> --at N | --top | --bottom | --above <key> | --below <key>
 reinstall-hub cover <hub goal key> <key>   # a hub goal counts a project goal or task (uncover removes)
-reinstall-hub inbox --unserved --json      # unranked tasks that serve no goal
-reinstall-hub priorities --json            # ranked tasks: rank, key, title, status, due, file
-reinstall-hub inbox --json [--brain NAME]  # open tasks not ranked yet, in project order
-reinstall-hub place <key> --at N | --top | --bottom | --above <key> | --below <key>
-reinstall-hub unrank <key>
+reinstall-hub projects --json              # projects in rank order: open and pinned tasks each
+reinstall-hub place-project <name> --at N | --top | --bottom | --above <name> | --below <name> [--drop-pins]
+reinstall-hub priorities --json [--limit N] # every open task in order (pins first): rank, pinned, plan, goal, file
+reinstall-hub inbox --json [--brain NAME]  # the tasks not pinned, in the same order
+reinstall-hub inbox --unserved --json      # tasks not pinned that serve no goal
+reinstall-hub place <key> --at N | --top | --bottom | --above <key> | --below <key>   # pin a task
+reinstall-hub unrank <key>                 # unpin it
 reinstall-hub init [folder] [--name NAME] [--default]
 reinstall-hub connect <repo> [--name NAME]
 reinstall-hub disconnect <name>
@@ -79,11 +82,12 @@ A key is `<brain>/<id>`. If `reinstall-hub` is not on PATH but `~/.reinstall-bra
 
 ## Overview
 
-From the state above plus `reinstall-hub priorities --json` and `reinstall-hub inbox --json`, say in
-three or four lines: the ranked goals (as links), how many brains are connected (and any that are
-not readable here), the top 3 ranked tasks as links, and how many open tasks wait unranked. Then ask
-what to do next with one question: **Set goals** (recommended when there are none), **Prioritize the
-inbox** (recommended when it holds more than a handful), **Plan today**, **Connect more repos**.
+From the state above plus `reinstall-hub projects --json` and `reinstall-hub priorities --json --limit 5`,
+say in four or five lines: the ranked goals (as links), the projects in rank order (with open-task
+counts, and any brain not readable here), the top 3 tasks as links (say which are pinned), and any
+pins. Then ask what to do next with one question: **Set goals** (recommended when there are none, and
+always first on a hub's first run), **Rank projects** (recommended when the project order has not been
+confirmed), **Prioritize** (recommended when old tasks pile up), **Plan today**, **Connect more repos**.
 
 ---
 
@@ -120,10 +124,10 @@ inbox** (recommended when it holds more than a handful), **Plan today**, **Conne
    reinstall-hub connect <repo>
    ```
    A repo without a brain gets one (empty, ready to use) and its own `/brain` wiring.
-6. **Project order.** The order of `connects:` is the strongest default signal when ranking. Propose
-   an order (most recent activity first, or the order the owner named projects in) and ask one
-   question: **Use this order**, or **Change it** (then ask which project goes first, and so on, in a
-   round or two). Reorder the `connects:` entries in `brain/brain.yaml` by hand.
+6. **Project order.** The order of `connects:` is the project ranking, and it orders every task.
+   Propose an order (most recent activity first, or the order the owner named projects in) and ask
+   one question: **Use this order**, or **Change it** (then ask which project goes first, and so on,
+   in a round or two). Apply it with `reinstall-hub place-project <name> --at N`.
 7. **Commit** the hub (`git add -A && git commit`) when the owner agrees, and each connected repo's
    new files (`brain/`, `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, `.gitignore`).
 8. Offer **Goals** next (then **Prioritize**).
@@ -161,50 +165,42 @@ Goals are the outcomes everything else is for. Few is better: 3 to 5 hub goals.
 
 ## Prioritize
 
-Turn the inbox into a ranking, a few tasks at a time.
+The owner ranks projects and goals; tasks follow from them. Prioritizing is mostly confirming the
+project order and clearing dead work, with a pin only for the few tasks that must jump the line.
 
 1. **Load.**
    ```bash
+   reinstall-hub projects --json
+   reinstall-hub goals --json
    reinstall-hub priorities --json
-   reinstall-hub inbox --json
    ```
-   Note the current ranking's length, and the inbox size per brain.
-2. **Clear the dead first** when the inbox is large (more than about 30). Tasks open for months with
-   no log activity are often finished or abandoned. Find them by age (`created`) and by reading the
-   last lines of each file's `## Log`. Put them to the owner in rounds of 4 with the options **Drop
-   it** (recommended for clearly dead work), **Keep, rank later**, **Keep, it's done** (mark it done).
-   Dropping and finishing are writes to that project's brain, made only on those choices:
+2. **Projects.** Show the projects in rank order with their open-task counts, and ask one question:
+   **Keep this order**, or **Change it** (then which project goes first, and so on). Apply with
+   `reinstall-hub place-project <name> --at N`. It reports pins that still go ahead of the new order;
+   ask whether to keep them (`--drop-pins` clears them).
+3. **Clear the dead, by cluster,** when a project holds many tasks with no recent activity. Find them
+   by `created` and by the last dated line of each file's `## Log` (older than about six weeks). Group
+   them: by project, then by plan (`plan` in the JSON) or by theme (a dropped direction, an old setup
+   checklist, a finished plan whose phase tasks were never closed: check the plan file's
+   `**Status:** done` lines). One question per cluster, up to 4 per call, naming the cluster, its count
+   and a few titles, with **Drop all** (recommended for clearly dead work), **Mark all done** (when the
+   plan or the owner says they finished), **Go one by one**, **Keep**. Dropping and finishing are
+   writes to that project's brain, made only on those choices:
    ```bash
    cd <repo> && reinstall-brain set <id> status=dropped --log "claude (for <owner>): dropped while prioritizing in hub <hub>"
    cd <repo> && reinstall-brain done <id> --log "claude (for <owner>): finished (confirmed while prioritizing)"
    ```
-   Offer to skip this step entirely with one question before starting it.
-3. **Order the candidates** by the signals in `brain/HUB.md`: the rank of the goal a task serves
-   (`goal`, `hub_goal` in the inbox JSON), project order, due dates, people waiting on the owner, tasks
-   that unblock others, age. Read a task's file when its title alone does not say what it is, and
-   write a one-line gist for its question.
-4. **Goal first, for tasks that serve none** (`goal` is null), when the hub has goals. One question per
-   task, 4 per call: "Which goal is this for?" with the likeliest goals (recommendation first) and
-   **No goal: drop it**. Record the answer in the hub, never in the project brain:
-   `reinstall-hub cover <hub goal key> <task key>`. A task tied to no goal is the first candidate to
-   drop; dropping is a write to its brain (as in step 2). Offer to skip this step with one question.
-5. **Rounds.** One question per task, 4 tasks per call:
-   - Question: the task as a link, its project, its goal, and the gist.
-   - Options: **Top** (do it before what is ranked now), **Next** (after the current top 10),
-     **Later** (bottom of the ranking), **Not now** (leave it in the inbox). Put your recommendation
-     first. For a stale task, offer **Drop it** in place of **Later**.
-   - Place each answer, keeping the owner's order within a group:
-     - Top: `reinstall-hub place <key> --at <t+1>`, where `t` is how many tasks were put on top this
-       session.
-     - Next: `--at <min(10, ranked)+t+n+1>`, where `n` is how many went to Next this session (or
-       `--bottom` when the ranking is shorter than that).
-     - Later: `--bottom`.
-     - Not now: nothing; do not ask about it again this session.
+   Offer to skip this step with one question before starting it.
+4. **Goals for loose work,** when the hub has goals and a project that has goals holds tasks serving
+   none (`inbox --unserved`). One question per task or cluster: "Which goal is this for?" with the
+   likeliest goals and **No goal**. Record it in the hub: `reinstall-hub cover <hub goal key> <task key>`.
+   Tasks in client or delivery projects without goals are fine as they are: skip them.
+5. **Pins, only if wanted.** Show the top 10 of `priorities` as links, numbered, each with its project,
+   goal and plan, and ask one question: **Looks right**, or **Move something**. For a move, ask which
+   task and where (top / ahead of a named task), then pin it with `reinstall-hub place`. Prefer fixing
+   the project or goal order when that is the real reason; a pin is for an exception.
 6. After every round, the one-line tally. Every third round, one question: **Keep going** or **Stop
-   here** (stopping is fine: the inbox keeps the rest).
-7. **Finish.** Show the top 10 as links, numbered, each with its goal. Ask one question: **Looks right**, or **Move
-   something**. For a move, ask which task (options from the top 10) and where (top / up a few /
-   down a few / bottom), then `place` it.
+   here**.
 
 ---
 
