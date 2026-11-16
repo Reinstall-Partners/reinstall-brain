@@ -28,18 +28,32 @@ prints its path. Then edit the body.
    `brain/records/` already starts with `<id>-`.
 2. Copy `brain/templates/<type>.md` to `brain/records/<type>s/<id>-<slug>.md`. The slug is the
    title in lowercase with every run of other characters turned into `-`, at most 60 characters.
-3. Fill in `id`, `title` and `created` (ISO 8601, with time and offset, for example
-   `2026-11-16T14:02:00-06:00`). Delete any field you leave empty. Write the body.
+3. Fill in `id`, `title` and `created`: the current date and time with its UTC offset, for example
+   `2026-11-16T14:02:00-06:00` (`date +%Y-%m-%dT%H:%M:%S%z` prints it; add the colon in the offset).
+   Delete any field you leave empty. Write the body.
 
 Types and their folders: `note` → `notes/`, `decision` → `decisions/`, `question` → `questions/`,
 `insight` → `insights/`, `task` → `tasks/`, `milestone` → `milestones/`. Extra types are listed
 under `types:` in `brain.yaml`.
+
+## Fields you will use most
+
+- `status`: `active` (open), `blocked` (can't move until something else happens), `done`, `dropped`
+  (abandoned) or `superseded` (replaced by a newer record).
+- `blocked_by`: ids of records that must be resolved first. Use it with `status: blocked`.
+- `assignee`: the person who owns a task. `delegate`: the agent doing it for them.
+- `author`: who wrote the record. An agent writes `<agent> (for <person>)`, for example
+  `claude (for sam)`. Log lines use the same form for `who`.
+- `parent`: the record this one came out of, for example the task a decision was made for.
+- `scope`: in a monorepo, the sub-project the record belongs to (`apps/web`). Leave it out otherwise.
+- `tags`: a few lowercase words for finding things later. Records don't inherit tags from their parent.
 
 ## Change
 
 - **Status, corrections, progress:** edit the record in place. Add progress as a
   new line at the end of its `## Log` section: `- YYYY-MM-DD who: what happened`. Append, never
   rewrite earlier lines.
+- **Block a task:** `status: blocked`, list what it waits on in `blocked_by`, and add a log line.
 - **Finish a task:** `status: done` and `completed: <date-time>`.
 - **A decision changed:** never edit the old decision. Write a new one with `supersedes: <old id>`,
   then set the old one's `status: superseded` and `superseded_by: <new id>`.
