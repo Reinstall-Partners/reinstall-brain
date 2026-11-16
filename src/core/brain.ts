@@ -27,6 +27,8 @@ export interface BrainConfig {
   format: number;
   name: string;
   title?: string;
+  /** true for a hub: a brain that connects other brains (also implied by a non-empty connects:). */
+  hub: boolean;
   scopes: string[];
   types: TypeDef[];
   connects: Connection[];
@@ -84,6 +86,7 @@ export function loadConfig(brainDir: string): BrainConfig {
     format,
     name: String(raw.name),
     title: raw.title ? String(raw.title) : undefined,
+    hub: raw.hub === true || (Array.isArray(raw.connects) && raw.connects.length > 0),
     scopes: Array.isArray(raw.scopes) ? raw.scopes.map(String) : [],
     types: Array.isArray(raw.types)
       ? raw.types.map((t: any) => ({

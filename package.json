@@ -1,6 +1,6 @@
 {
   "name": "reinstall-brain",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Brain and Hub: a git-native record store that any agent can read, and the hub that connects every project's brain.",
   "license": "MIT",
   "type": "module",
@@ -10,6 +10,10 @@
   },
   "files": [
     "dist",
+    "skills",
+    "hooks",
+    "guide",
+    "setup.mjs",
     "README.md",
     "LICENSE"
   ],
@@ -18,10 +22,11 @@
   },
   "scripts": {
     "gen": "node scripts/gen-templates.mjs",
-    "build": "node scripts/gen-templates.mjs && tsc -p tsconfig.json",
+    "build": "node scripts/gen-templates.mjs && tsc -p tsconfig.json && node scripts/stamp-build.mjs",
     "test": "node scripts/gen-templates.mjs && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "compile": "node scripts/gen-templates.mjs && node scripts/compile.mjs"
+    "compile": "node scripts/gen-templates.mjs && node scripts/compile.mjs",
+    "prepare": "npm run build"
   },
   "repository": {
     "type": "git",

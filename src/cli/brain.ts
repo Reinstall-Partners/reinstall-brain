@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import path from 'node:path';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { wire, formatWire, packageRoot } from '../core/wire.js';
 import { openDb } from '../core/sqlite.js';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
@@ -31,7 +33,9 @@ Write
   supersede <old-id> <new-id>        the new record replaces the old one
 
 Maintain
-  init [--name NAME]                 create brain/ in the current repository
+  init [--name NAME] [--no-wire]     create brain/ in the current repository and wire its skill and guide
+  wire [--dry-run]                   re-link this repo's skills, session hook and guide lines
+  update                             git pull this install, rebuild, and re-wire every hub
   index [--rebuild]                  refresh the index (every command does this first)
   migrate [--from cowork/brain/BRAIN.db] [--dry-run] [--move-docs]
                                      convert a TB Claude Kit brain into records (one-time)
@@ -100,11 +104,30 @@ async function main(argv: string[]): Promise<number> {
     case 'init': {
       const root = locateBrain() ?? process.cwd();
       const { created, brain } = initBrain(root, a.value('name') ?? defaultBrainName(root));
-      out({ root: brain.root, name: brain.config.name, created }, () => {
+      const wired = a.flag('no-wire') ? [] : wire(brain.root, brain.config.hub ? 'hub' : 'brain');
+      out({ root: brain.root, name: brain.config.name, created, wired }, () => {
         console.log(`brain "${brain.config.name}" at ${path.join(brain.root, 'brain')}`);
         for (const c of created) console.log(`  created ${c}`);
-        if (created.length === 0) console.log('  already set up; nothing changed');
+        const w = formatWire(wired);
+        if (w) console.log(w);
+        if (created.length === 0 && !w) console.log('  already set up; nothing changed');
       });
+      return 0;
+    }
+    case 'wire': {
+      const brain = requireBrain();
+      const wired = wire(brain.root, brain.config.hub ? 'hub' : 'brain', { dryRun: a.flag('dry-run') });
+      out(wired, () => console.log(formatWire(wired) || 'wired; nothing changed'));
+      return 0;
+    }
+    case 'update': {
+      const pkg = packageRoot();
+      const run = (cmdName: string, args: string[]) => execFileSync(cmdName, args, { cwd: pkg, stdio: 'inherit', shell: process.platform === 'win32' });
+      if (!existsSync(path.join(pkg, '.git'))) throw new Error(`${pkg} is not a git clone; update it the way you installed it`);
+      run('git', ['pull', '--ff-only']);
+      run('npm', ['install', '--no-audit', '--no-fund']);
+      run('npm', ['run', 'build']);
+      run(process.execPath, [path.join(pkg, 'dist', 'cli', 'hub.js'), 'sync', '--all']);
       return 0;
     }
     case 'kitdb': {

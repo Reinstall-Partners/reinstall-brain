@@ -176,6 +176,7 @@ types:                    # optional: extra record types (see Extending)
   - name: swarm-run
     path: swarm             # records anywhere under brain/swarm/ (a kit-owned folder)
     kit: example-kit
+hub: true                 # hubs only (see Hub)
 connects: []              # hubs only (see Hub)
 ```
 
@@ -217,12 +218,13 @@ lost on the next refresh.
 
 ## Hub
 
-A hub is a brain whose `brain.yaml` lists other brains under `connects`, in the owner's project
-order:
+A hub is a brain whose `brain.yaml` says `hub: true` and lists other brains under `connects`, in
+the owner's project order (a non-empty `connects` alone also makes a brain a hub):
 
 ```yaml
 format: 1
 name: sams-hub
+hub: true
 connects:
   - name: web-app
     path: ~/dev/web-app          # local clone
@@ -245,7 +247,16 @@ adds `priorities.md`: the owner's personal ranking of tasks across every connect
 Line order is the rank: no two items are equal. Only the owner (or tools acting for them) edits
 this file. Tasks in connected brains that are not yet listed are the **inbox**; tasks whose status
 is no longer `active` or `blocked` drop off. A brain never knows which hubs read it, and holds no
-hub settings.
+hub settings: a brain can belong to many hubs, and a machine can hold many hubs. A hub also carries
+`brain/HUB.md`, the agent guide for working it, refreshed by the tools.
+
+### Wiring
+
+Tools set up the folders that use a brain or a hub so an agent can work in them straight away
+(`reinstall-brain init|wire`, `reinstall-hub init|connect|sync`): the `brain` skill (and the `hub`
+skill in a hub) linked into `.claude/skills/`, a session hook that loads the brain's context, and a
+managed block in `CLAUDE.md` and `AGENTS.md` pointing at the guide. The links are git-ignored, since
+they hold one machine's paths; everything else is committed.
 
 ## Versioning
 

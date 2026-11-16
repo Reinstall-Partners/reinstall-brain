@@ -1,12 +1,15 @@
 // A hub is a brain whose brain.yaml lists other brains under `connects`. It adds one thing a brain
 // never holds: priorities.md, the owner's strict ranking of tasks across every connected brain.
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, realpathSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { parseDocument, type Document } from 'yaml';
 import path from 'node:path';
 import os from 'node:os';
 import { openDb, type Db } from './sqlite.js';
 import { type Brain, openBrain, locateBrain, expandHome } from './brain.js';
-import { openFresh } from './ops.js';
+import { openFresh, initBrain, defaultBrainName } from './ops.js';
+import { wire, type WireLine } from './wire.js';
 
 export const OPEN = ['active', 'blocked'];
 
@@ -28,39 +31,258 @@ export interface Ranked extends HubItem {
   rank: number;
 }
 
-// ---- finding the hub ----
+// ---- the machine's hubs (D20: many hubs on one machine) ----
+//
+// ~/.config/reinstall-brain/hubs.json: { "default": "<path>", "hubs": [{ "name", "path" }] }.
+// `reinstall-hub init` registers a hub; `reinstall-hub use` sets the default.
 
-function savedHubFile(): string {
-  return path.join(os.homedir(), '.config', 'reinstall-brain', 'hub');
+export interface HubEntry {
+  name: string;
+  path: string;
 }
 
-/** --hub flag, then REINSTALL_HUB, then the saved hub (`reinstall-hub use`), then the brain here if it is a hub. */
-export function locateHub(flag?: string): Brain {
-  const candidates = [flag, process.env.REINSTALL_HUB, existsSync(savedHubFile()) ? readFileSync(savedHubFile(), 'utf8').trim() : undefined];
-  for (const c of candidates) {
-    if (!c) continue;
-    const root = locateBrain(expandHome(c));
-    if (!root) throw new Error(`no brain at ${c}`);
-    const brain = openBrain(root);
-    if (!brain.config.connects.length) throw new Error(`${c} is a brain but not a hub: add connects: to its brain.yaml`);
-    return brain;
+interface Registry {
+  default?: string;
+  hubs: HubEntry[];
+}
+
+function configDir(): string {
+  return path.join(os.homedir(), '.config', 'reinstall-brain');
+}
+
+function registryFile(): string {
+  return path.join(configDir(), 'hubs.json');
+}
+
+/** The old single-hub file, read once and folded into the registry. */
+function legacyHubFile(): string {
+  return path.join(configDir(), 'hub');
+}
+
+function realOr(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return path.resolve(p);
   }
-  const here = locateBrain();
+}
+
+export function readRegistry(): Registry {
+  let reg: Registry = { hubs: [] };
+  try {
+    const raw = JSON.parse(readFileSync(registryFile(), 'utf8'));
+    reg = { default: raw.default ? String(raw.default) : undefined, hubs: Array.isArray(raw.hubs) ? raw.hubs.map((h: any) => ({ name: String(h.name), path: String(h.path) })) : [] };
+  } catch {
+    /* none yet */
+  }
+  if (existsSync(legacyHubFile())) {
+    const p = readFileSync(legacyHubFile(), 'utf8').trim();
+    if (p && !reg.hubs.some((h) => realOr(expandHome(h.path)) === realOr(expandHome(p)))) {
+      try {
+        reg.hubs.push({ name: openBrain(p).config.name, path: p });
+      } catch {
+        /* the old hub is gone */
+      }
+    }
+    reg.default ??= p;
+  }
+  return reg;
+}
+
+function writeRegistry(reg: Registry): void {
+  mkdirSync(configDir(), { recursive: true });
+  writeFileSync(registryFile(), `${JSON.stringify(reg, null, 2)}\n`);
+  if (existsSync(legacyHubFile())) rmSync(legacyHubFile());
+}
+
+export function tildePath(p: string): string {
+  const home = os.homedir();
+  const abs = path.resolve(p);
+  return abs === home ? '~' : abs.startsWith(home + path.sep) ? `~/${path.relative(home, abs).split(path.sep).join('/')}` : abs;
+}
+
+export function registerHub(hub: Brain, opts: { makeDefault?: boolean } = {}): Registry {
+  const reg = readRegistry();
+  const at = realOr(hub.root);
+  const existing = reg.hubs.find((h) => realOr(expandHome(h.path)) === at);
+  if (existing) existing.name = hub.config.name;
+  else reg.hubs.push({ name: hub.config.name, path: tildePath(hub.root) });
+  if (opts.makeDefault || !reg.default) reg.default = tildePath(hub.root);
+  writeRegistry(reg);
+  return reg;
+}
+
+export function listHubs(): (HubEntry & { default: boolean; ok: boolean })[] {
+  const reg = readRegistry();
+  const def = reg.default ? realOr(expandHome(reg.default)) : undefined;
+  return reg.hubs.map((h) => {
+    const root = realOr(expandHome(h.path));
+    return { ...h, default: root === def, ok: existsSync(path.join(root, 'brain', 'brain.yaml')) };
+  });
+}
+
+function openHub(root: string, said: string): Brain {
+  const brain = openBrain(root);
+  if (!brain.config.hub) throw new Error(`${said} is a brain but not a hub (run reinstall-hub init there to make it one)`);
+  return brain;
+}
+
+/**
+ * Which hub a command acts on: --hub (a registered hub's name, or a path), then the hub folder you are
+ * in, then REINSTALL_HUB, then the default hub, then the only registered hub.
+ */
+export function locateHub(flag?: string, cwd: string = process.cwd()): Brain {
+  const reg = readRegistry();
+  const byName = (n: string) => reg.hubs.find((h) => h.name === n);
+  if (flag) {
+    const p = byName(flag)?.path ?? flag;
+    const root = locateBrain(expandHome(p));
+    if (!root) throw new Error(`no hub named or at ${flag} (see reinstall-hub list)`);
+    return openHub(root, flag);
+  }
+  const here = locateBrain(cwd);
   if (here) {
     const brain = openBrain(here);
-    if (brain.config.connects.length) return brain;
+    if (brain.config.hub) return brain;
   }
-  throw new Error('no hub found: pass --hub <path>, set REINSTALL_HUB, or run `reinstall-hub use <path>` once');
+  for (const c of [process.env.REINSTALL_HUB, reg.default, reg.hubs.length === 1 ? reg.hubs[0].path : undefined]) {
+    if (!c) continue;
+    const p = byName(c)?.path ?? c;
+    const root = locateBrain(expandHome(p));
+    if (!root) throw new Error(`no hub at ${c} (see reinstall-hub list)`);
+    return openHub(root, c);
+  }
+  throw new Error(reg.hubs.length ? 'more than one hub on this machine: run this inside a hub, pass --hub <name>, or set a default with reinstall-hub use <name>' : 'no hub yet: reinstall-hub init <folder> creates one');
 }
 
+/** Make a registered hub (by name or path) the default. */
 export function saveHub(p: string): string {
-  const root = locateBrain(expandHome(p));
-  if (!root) throw new Error(`no brain at ${p}`);
+  const reg = readRegistry();
+  const target = reg.hubs.find((h) => h.name === p)?.path ?? p;
+  const root = locateBrain(expandHome(target));
+  if (!root) throw new Error(`no hub named or at ${p}`);
+  const hub = openHub(root, p);
+  registerHub(hub, { makeDefault: true });
+  return hub.root;
+}
+
+// ---- creating a hub and connecting repos ----
+
+function editYaml(brain: Brain, fn: (doc: Document) => void): void {
+  const file = path.join(brain.dir, 'brain.yaml');
+  const doc = parseDocument(readFileSync(file, 'utf8'));
+  fn(doc);
+  writeFileSync(file, String(doc));
+}
+
+function isGitRepo(dir: string): boolean {
+  try {
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd: dir, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface HubInitResult {
+  hub: Brain;
+  created: string[];
+  wired: WireLine[];
+  adopted: boolean;
+}
+
+/** Create a hub in `dir` (a new folder, or an existing repo or brain), register it, and wire it. */
+export function initHub(dir: string, opts: { name?: string; makeDefault?: boolean; dryRun?: boolean } = {}): HubInitResult {
+  const root = path.resolve(expandHome(dir));
+  mkdirSync(root, { recursive: true });
+  if (!isGitRepo(root)) execFileSync('git', ['init', '-q', root]);
+  const adopted = existsSync(path.join(root, 'brain', 'brain.yaml'));
+  const { created } = initBrain(root, opts.name ?? defaultBrainName(root));
+  let hub = openBrain(root);
+  if (!hub.config.hub || !/^hub:\s*true\s*$/m.test(readFileSync(path.join(hub.dir, 'brain.yaml'), 'utf8'))) {
+    editYaml(hub, (doc) => {
+      doc.set('hub', true);
+      if (!doc.has('connects')) doc.set('connects', doc.createNode([]));
+    });
+    hub = openBrain(root);
+  }
+  const wired = wire(root, 'hub', { dryRun: opts.dryRun });
+  registerHub(hub, { makeDefault: opts.makeDefault });
+  return { hub, created, wired, adopted };
+}
+
+export interface ConnectResult {
+  name: string;
+  root: string;
+  createdBrain: boolean;
+  already: boolean;
+  wired: WireLine[];
+}
+
+/** Connect a project repo to a hub: set up its brain if it has none, list it in connects:, and wire it. */
+export function connectRepo(hub: Brain, repo: string, opts: { name?: string } = {}): ConnectResult {
+  const abs = path.resolve(expandHome(repo));
+  if (!existsSync(abs)) throw new Error(`no folder at ${repo}`);
+  const root = locateBrain(abs) ?? abs;
+  let createdBrain = false;
+  if (!existsSync(path.join(root, 'brain', 'brain.yaml'))) {
+    initBrain(root, defaultBrainName(root));
+    createdBrain = true;
+  }
   const brain = openBrain(root);
-  if (!brain.config.connects.length) throw new Error(`${p} has no connects: in brain.yaml, so it is not a hub`);
-  mkdirSync(path.dirname(savedHubFile()), { recursive: true });
-  writeFileSync(savedHubFile(), `${brain.root}\n`);
-  return brain.root;
+  if (realOr(root) === realOr(hub.root)) throw new Error('a hub cannot connect itself: its own brain is always included');
+  const existing = hub.config.connects.find((c) => c.path && realOr(expandHome(c.path)) === realOr(root));
+  let name = existing?.name ?? opts.name ?? brain.config.name;
+  if (!existing) {
+    const taken = new Set(hub.config.connects.map((c) => c.name).concat(hub.config.name));
+    if (taken.has(name)) {
+      if (opts.name) throw new Error(`${name} is already a name in this hub: pass a different --name`);
+      let i = 2;
+      while (taken.has(`${name}-${i}`)) i++;
+      name = `${name}-${i}`;
+    }
+    editYaml(hub, (doc) => {
+      if (!doc.has('connects')) doc.set('connects', doc.createNode([]));
+      const seq = doc.get('connects') as any;
+      seq.add(doc.createNode({ name, path: tildePath(root) }));
+    });
+  }
+  const wired = wire(root, 'brain');
+  return { name, root, createdBrain, already: !!existing, wired };
+}
+
+/** Remove a brain from the hub's connects:. Its own wiring stays: it may belong to another hub. */
+export function disconnectRepo(hub: Brain, name: string): boolean {
+  if (!hub.config.connects.some((c) => c.name === name)) return false;
+  editYaml(hub, (doc) => {
+    const seq = doc.get('connects') as any;
+    const i = seq.items.findIndex((it: any) => it.get && it.get('name') === name);
+    if (i >= 0) seq.delete(i);
+  });
+  return true;
+}
+
+export interface SyncResult {
+  hub: string;
+  lines: { where: string; wired: WireLine[]; error?: string }[];
+}
+
+/** Re-wire a hub and every connected repo that is on this machine. */
+export function syncHub(hub: Brain): SyncResult {
+  const lines: SyncResult['lines'] = [{ where: hub.config.name, wired: wire(hub.root, 'hub') }];
+  for (const c of hub.config.connects) {
+    const root = c.path ? locateBrain(expandHome(c.path)) : undefined;
+    if (!root) {
+      lines.push({ where: c.name, wired: [], error: c.path ? `not on this machine (${c.path})` : 'no local path' });
+      continue;
+    }
+    try {
+      lines.push({ where: c.name, wired: wire(root, 'brain') });
+    } catch (e) {
+      lines.push({ where: c.name, wired: [], error: (e as Error).message });
+    }
+  }
+  return { hub: hub.config.name, lines };
 }
 
 // ---- the hub index ----

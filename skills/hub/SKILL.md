@@ -1,0 +1,210 @@
+---
+name: hub
+description: Work with a hub (Reinstall Brain), the one place that sees every connected project's brain and holds the owner's ranking of what matters. Sets a hub up, connects repos, and prioritizes across all projects in short rounds of choices, then plans the day. Use in a hub folder, or when the user asks to set up a hub, connect a repo, or prioritize across projects.
+argument-hint: "[setup|prioritize|today|connect <repo>|status|sync]"
+---
+
+## This hub
+!`reinstall-hub status 2>/dev/null || echo "Not a hub here (or the reinstall-brain CLI is not installed): see Setup"`
+
+## Hubs on this machine
+!`reinstall-hub list 2>/dev/null || true`
+
+---
+
+# Hub
+
+A hub is a brain that connects other brains: `brain/brain.yaml` lists them under `connects:`, and
+`brain/priorities.md` is the owner's strict ranking of tasks across all of them (line order is the
+rank). `brain/HUB.md` is the full guide, including how to do all of this with plain files when the
+CLI is missing. A machine can hold many hubs; commands act on the hub folder you are in, or
+`--hub <name>`.
+
+## Input
+
+Optional argument: `$ARGUMENTS`
+
+- (empty) in a hub: **Overview**, then offer the next step. Not in a hub: **Setup**.
+- `setup`: **Setup**: create or adopt a hub and connect repos
+- `prioritize`: **Prioritize**: rank the inbox in short rounds of choices
+- `today`: **Today**: a plan for the day from the top of the ranking
+- `connect <repo>`: **Connect** one repo
+- `status`: **Status**: every connected brain, and what is missing
+- `sync`: **Sync**: re-wire skills and guides in the hub and every connected repo
+
+## How to talk to the owner here
+
+This skill exists so the owner can steer many projects without reading walls of text.
+
+- **Choices, not essays.** Every decision goes to the owner through your question tool when you have
+  one (AskUserQuestion in Claude Code): up to 4 questions per call, 2 to 4 options each, the
+  recommended option first and marked "(Recommended)", each option's description saying in a few
+  words why. Without a question tool, ask the same thing as a short numbered list and take terse
+  answers ("1a 2c 3a").
+- **Small rounds.** After each round, one line of tally ("Placed 4: 2 at the top, 1 next, 1 later.
+  38 left."), then the next round. No recaps of earlier rounds.
+- **Tasks are links**: `[Ship the importer](/abs/path/to/record.md)`, with the project named in a few
+  words. The `file` field of every `--json` item is that path. Never show a bare key or id.
+- **The order is the owner's.** Place only what the owner chose. Never write to a project's brain
+  (dropping a task, adding a due date) unless the owner picked exactly that.
+
+## The CLI in one screen
+
+```bash
+reinstall-hub status --json                # connected brains, record counts, problems
+reinstall-hub priorities --json            # ranked tasks: rank, key, title, status, due, file
+reinstall-hub inbox --json [--brain NAME]  # open tasks not ranked yet, in project order
+reinstall-hub place <key> --at N | --top | --bottom | --above <key> | --below <key>
+reinstall-hub unrank <key>
+reinstall-hub init [folder] [--name NAME] [--default]
+reinstall-hub connect <repo> [--name NAME]
+reinstall-hub disconnect <name>
+reinstall-hub sync [--all]
+reinstall-hub list                         # hubs on this machine (* = default)
+```
+
+A key is `<brain>/<id>`. If `reinstall-hub` is not on PATH but `~/.reinstall-brain` exists, run
+`node ~/.reinstall-brain/dist/cli/hub.js` instead. With neither, follow "Without the CLI" in
+`brain/HUB.md`.
+
+---
+
+## Overview
+
+From the state above plus `reinstall-hub priorities --json` and `reinstall-hub inbox --json`, say in
+three or four lines: how many brains are connected (and any that are not readable here), the top 3
+ranked tasks as links, and how many open tasks wait unranked. Then ask what to do next with one
+question: **Prioritize the inbox** (recommended when the inbox holds more than a handful), **Plan
+today**, **Connect more repos**, **Look at the ranking**.
+
+---
+
+## Setup
+
+1. **The CLI.** `reinstall-hub version`. If missing, give the one-step install from GitHub:
+   ```bash
+   git clone https://github.com/Reinstall-Partners/reinstall-brain ~/reinstall-brain
+   node ~/reinstall-brain/setup.mjs
+   ```
+   then continue once the user says it ran.
+2. **The hub folder.** If this folder is already a hub, skip ahead. Otherwise ask one question:
+   make **this folder** the hub (recommended when it is empty or meant for it), or **a new folder**
+   (ask where). Then:
+   ```bash
+   reinstall-hub init <folder> [--name <name>]
+   ```
+   It creates the brain (or adopts the one there), marks it a hub, writes `brain/HUB.md` and
+   `brain/priorities.md`, wires the `/hub` and `/brain` skills and the session hook, and registers the
+   hub on this machine. If it is the first hub, it becomes the default.
+3. **Find the projects.** Ask where the projects live (options: the hub's parent folder, the home
+   folder, somewhere else). List the git repos there, two levels deep, skipping dependency folders:
+   ```bash
+   find <folder> -maxdepth 3 -name .git -not -path '*/node_modules/*' 2>/dev/null | sed 's#/\.git$##'
+   ```
+   For each, note whether it has a brain (`<repo>/brain/brain.yaml`) and whether another hub already
+   connects it (`reinstall-hub list`, then each hub's `brain/brain.yaml`). A repo may belong to more
+   than one hub; say so when it already does.
+4. **Pick repos.** Multi-select questions, 4 repos per question and up to 4 questions per call:
+   repos with a brain first, then the most recently committed (`git -C <repo> log -1 --format=%cr`).
+   Each option's description: has a brain or not, last commit, other hub if any.
+5. **Connect** each chosen repo:
+   ```bash
+   reinstall-hub connect <repo>
+   ```
+   A repo without a brain gets one (empty, ready to use) and its own `/brain` wiring.
+6. **Project order.** The order of `connects:` is the strongest default signal when ranking. Propose
+   an order (most recent activity first, or the order the owner named projects in) and ask one
+   question: **Use this order**, or **Change it** (then ask which project goes first, and so on, in a
+   round or two). Reorder the `connects:` entries in `brain/brain.yaml` by hand.
+7. **Commit** the hub (`git add -A && git commit`) when the owner agrees, and each connected repo's
+   new files (`brain/`, `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, `.gitignore`).
+8. Offer **Prioritize** next.
+
+---
+
+## Prioritize
+
+Turn the inbox into a ranking, a few tasks at a time.
+
+1. **Load.**
+   ```bash
+   reinstall-hub priorities --json
+   reinstall-hub inbox --json
+   ```
+   Note the current ranking's length, and the inbox size per brain.
+2. **Clear the dead first** when the inbox is large (more than about 30). Tasks open for months with
+   no log activity are often finished or abandoned. Find them by age (`created`) and by reading the
+   last lines of each file's `## Log`. Put them to the owner in rounds of 4 with the options **Drop
+   it** (recommended for clearly dead work), **Keep, rank later**, **Keep, it's done** (mark it done).
+   Dropping and finishing are writes to that project's brain, made only on those choices:
+   ```bash
+   cd <repo> && reinstall-brain set <id> status=dropped --log "claude (for <owner>): dropped while prioritizing in hub <hub>"
+   cd <repo> && reinstall-brain done <id> --log "claude (for <owner>): finished (confirmed while prioritizing)"
+   ```
+   Offer to skip this step entirely with one question before starting it.
+3. **Order the candidates** by the signals in `brain/HUB.md`: project order, due dates, people
+   waiting on the owner, tasks that unblock others, age. Read a task's file when its title alone does
+   not say what it is, and write a one-line gist for its question.
+4. **Rounds.** One question per task, 4 tasks per call:
+   - Question: the task as a link, its project, and the gist.
+   - Options: **Top** (do it before what is ranked now), **Next** (after the current top 10),
+     **Later** (bottom of the ranking), **Not now** (leave it in the inbox). Put your recommendation
+     first. For a stale task, offer **Drop it** in place of **Later**.
+   - Place each answer, keeping the owner's order within a group:
+     - Top: `reinstall-hub place <key> --at <t+1>`, where `t` is how many tasks were put on top this
+       session.
+     - Next: `--at <min(10, ranked)+t+n+1>`, where `n` is how many went to Next this session (or
+       `--bottom` when the ranking is shorter than that).
+     - Later: `--bottom`.
+     - Not now: nothing; do not ask about it again this session.
+5. After every round, the one-line tally. Every third round, one question: **Keep going** or **Stop
+   here** (stopping is fine: the inbox keeps the rest).
+6. **Finish.** Show the top 10 as links, numbered. Ask one question: **Looks right**, or **Move
+   something**. For a move, ask which task (options from the top 10) and where (top / up a few /
+   down a few / bottom), then `place` it.
+
+---
+
+## Today
+
+1. `reinstall-hub priorities --json`; also anything due within 7 days anywhere in the inbox.
+2. Ask one question about capacity: **About 2 hours**, **Half a day**, **A full day**.
+3. Propose 3 to 6 tasks from the top of the ranking that fit, plus anything due today, each a link
+   with a few words on why. Ask **Go with this** or **Swap something** (then which).
+4. Write the plan as a note in the hub's own brain:
+   ```bash
+   reinstall-brain new note "Plan for YYYY-MM-DD" --author "claude (for <owner>)" --tag daily-plan --body-file - --json <<'EOF'
+   <the tasks, each a link and one line>
+   EOF
+   ```
+   Confirm with a link to the note.
+
+---
+
+## Connect
+
+`connect <repo>`: `reinstall-hub connect <repo> [--name NAME]`. Say what happened in one line (a new
+brain or an existing one, the name it has in this hub). Offer to commit the repo's new files.
+
+## Status
+
+`reinstall-hub status --json` and `reinstall-hub list`. Say which brains are connected, their record
+counts, and any that are not readable on this machine (not cloned here, or moved). For a moved repo,
+offer to fix its `path:` in `brain/brain.yaml`.
+
+## Sync
+
+`reinstall-hub sync` (this hub) or `reinstall-hub sync --all` (every hub). Report only what changed.
+After `reinstall-brain update` this runs by itself.
+
+---
+
+## Rules
+
+- **Reads need no permission.** Overview, Status and loading the ranking run straight away.
+- **Every ranking change is the owner's choice,** made through a question. Never re-rank on your own.
+- **Writes to project brains** happen only on an explicit choice (drop, done), with a log line.
+- **Remote-only projects** (a `connects:` entry with no local path, or a folder not on this machine)
+  are not readable here: say so once, and leave their tasks alone.
+- **A cloud session** sees only the repository it was opened on, so a hub's projects are readable
+  only where they are checked out (normally the owner's own machine).

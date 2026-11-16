@@ -3,16 +3,30 @@ import { VERSION } from '../core/version.js';
 import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
+  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry,
 } from '../core/hub.js';
+import { formatWire } from '../core/wire.js';
+import { expandHome, locateBrain, openBrain } from '../core/brain.js';
 
 const HELP = `reinstall-hub ${VERSION}: the layer that connects every project's brain.
 
 A hub is a brain whose brain.yaml lists other brains under connects:. Its priorities.md is your
 strict ranking of tasks across all of them (line order is the rank).
 
-Usage: reinstall-hub <command> [--hub PATH] [--json]
+A machine can have many hubs. A command acts on --hub <name|path>, else the hub folder you are in,
+else REINSTALL_HUB, else the default hub (reinstall-hub use).
 
-  use <path>                       remember which hub to use (else --hub, REINSTALL_HUB, or the brain here)
+Usage: reinstall-hub <command> [--hub NAME|PATH] [--json]
+
+Set up
+  init [folder] [--name NAME] [--default]   create a hub (or adopt a folder), register it, wire its skills
+  connect <repo> [--name NAME]     connect a project repo (sets up its brain if it has none) and wire it
+  disconnect <name>                remove a brain from this hub (its own wiring stays)
+  sync [--all]                     re-wire this hub (or every hub) and its connected repos
+  list                             the hubs on this machine
+  use <name|path>                  make a hub the default
+
+Work
   index                            refresh every connected brain and the hub's combined index
   priorities [--all]               your ranked tasks (finished ones drop off the file)
   inbox [--brain NAME] [--limit N] open tasks not ranked yet, in project order
@@ -38,13 +52,66 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (cmd === 'use') {
-    if (!pos[0]) throw new Error('usage: reinstall-hub use <path to the hub repo>');
+    if (!pos[0]) throw new Error('usage: reinstall-hub use <name or path>');
     const root = saveHub(pos[0]);
-    console.log(`hub: ${root}`);
+    console.log(`default hub: ${root}`);
+    return 0;
+  }
+  if (cmd === 'list') {
+    const hubs = listHubs();
+    out(hubs, () => {
+      for (const h of hubs) console.log(`${h.default ? '*' : ' '} ${h.name.padEnd(24)} ${h.path}${h.ok ? '' : '   (missing)'}`);
+      if (!hubs.length) console.log('(no hubs yet: reinstall-hub init <folder>)');
+    });
+    return 0;
+  }
+  if (cmd === 'init') {
+    const r = initHub(pos[0] ?? '.', { name: a.value('name'), makeDefault: a.flag('default'), dryRun: a.flag('dry-run') });
+    out({ hub: r.hub.config.name, root: r.hub.root, adopted: r.adopted, created: r.created, wired: r.wired }, () => {
+      console.log(`${r.adopted ? 'adopted' : 'created'} hub ${r.hub.config.name} at ${r.hub.root}`);
+      for (const c of r.created) console.log(`  [create] ${c}`);
+      const w = formatWire(r.wired);
+      if (w) console.log(w);
+      console.log(`\nNext: reinstall-hub connect <repo> for each project, or open this folder with your agent and run /hub.`);
+    });
+    return 0;
+  }
+  if (cmd === 'sync' && a.flag('all')) {
+    const reg = readRegistry();
+    const results: any[] = [];
+    for (const h of reg.hubs) {
+      const root = locateBrain(expandHome(h.path));
+      if (!root) {
+        results.push({ hub: h.name, error: `missing (${h.path})` });
+        continue;
+      }
+      results.push(syncHub(openBrain(root)));
+    }
+    out(results, () => printSync(results));
     return 0;
   }
 
   const hub = locateHub(a.value('hub'));
+  if (cmd === 'connect') {
+    if (!pos[0]) throw new Error('usage: reinstall-hub connect <repo folder> [--name NAME]');
+    const r = connectRepo(hub, pos[0], { name: a.value('name') });
+    out(r, () => {
+      console.log(`${r.already ? 'already connected' : 'connected'}: ${r.name} (${r.root})${r.createdBrain ? ', with a new brain' : ''}`);
+      const w = formatWire(r.wired);
+      if (w) console.log(w);
+    });
+    return 0;
+  }
+  if (cmd === 'disconnect') {
+    const ok = disconnectRepo(hub, pos[0] ?? '');
+    out({ removed: ok }, () => console.log(ok ? `disconnected ${pos[0]} (its own wiring stays; it may belong to another hub)` : `${pos[0]} is not connected to ${hub.config.name}`));
+    return ok ? 0 : 1;
+  }
+  if (cmd === 'sync') {
+    const r = syncHub(hub);
+    out([r], () => printSync([r]));
+    return 0;
+  }
   const db = await openHubDb(hub);
   try {
     // Every command reads fresh data: brains are small and indexing is incremental.
@@ -103,6 +170,21 @@ async function main(argv: string[]): Promise<number> {
     }
   } finally {
     db.close();
+  }
+}
+
+function printSync(results: any[]): void {
+  for (const r of results) {
+    if (r.error) {
+      console.log(`${r.hub}: ${r.error}`);
+      continue;
+    }
+    console.log(`${r.hub}:`);
+    for (const l of r.lines) {
+      const w = formatWire(l.wired, '    ');
+      console.log(`  ${l.where}: ${l.error ?? (w ? 'updated' : 'ok')}`);
+      if (w) console.log(w);
+    }
   }
 }
 
