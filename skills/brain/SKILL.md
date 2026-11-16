@@ -5,16 +5,16 @@ argument-hint: "[setup|update|audit|goals|add <type>|done [id]|search <words>|sh
 ---
 
 ## Goals
-!`reinstall-brain sql "SELECT id, title, json_extract(fields,'$.measure') AS measure, due, path FROM records WHERE type = 'goal' AND status = 'active' ORDER BY created" 2>/dev/null || true`
+!`"$(command -v reinstall-brain || echo ~/.reinstall-brain/shim/reinstall-brain)" sql "SELECT id, title, json_extract(fields,'$.measure') AS measure, due, path FROM records WHERE type = 'goal' AND status = 'active' ORDER BY created" 2>/dev/null || true`
 
 ## Active tasks
-!`reinstall-brain sql "SELECT id, status, substr(created,1,10) AS created, title, path FROM records WHERE type = 'task' AND status IN ('active','blocked') ORDER BY status = 'blocked' DESC, created DESC LIMIT 25" 2>/dev/null || echo "No brain here, or the reinstall-brain CLI is not installed: see Setup"`
+!`"$(command -v reinstall-brain || echo ~/.reinstall-brain/shim/reinstall-brain)" sql "SELECT id, status, substr(created,1,10) AS created, title, path FROM records WHERE type = 'task' AND status IN ('active','blocked') ORDER BY status = 'blocked' DESC, created DESC LIMIT 25" 2>/dev/null || echo "No brain here, or the reinstall-brain CLI is not installed: see Setup"`
 
 ## Open questions
-!`reinstall-brain sql "SELECT id, substr(created,1,10) AS created, title, path FROM records WHERE type = 'question' AND status = 'active' ORDER BY created DESC LIMIT 15" 2>/dev/null || echo "None"`
+!`"$(command -v reinstall-brain || echo ~/.reinstall-brain/shim/reinstall-brain)" sql "SELECT id, substr(created,1,10) AS created, title, path FROM records WHERE type = 'question' AND status = 'active' ORDER BY created DESC LIMIT 15" 2>/dev/null || echo "None"`
 
 ## Recent decisions
-!`reinstall-brain sql "SELECT id, substr(created,1,10) AS created, title, path FROM records WHERE type = 'decision' AND status = 'active' ORDER BY created DESC LIMIT 10" 2>/dev/null || echo "None"`
+!`"$(command -v reinstall-brain || echo ~/.reinstall-brain/shim/reinstall-brain)" sql "SELECT id, substr(created,1,10) AS created, title, path FROM records WHERE type = 'decision' AND status = 'active' ORDER BY created DESC LIMIT 10" 2>/dev/null || echo "None"`
 
 ---
 

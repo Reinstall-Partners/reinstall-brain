@@ -10,7 +10,8 @@
 //   2. installs dependencies and builds the CLI (npm install runs the build).
 //   3. points ~/.reinstall-brain at this clone (a symlink; a junction on Windows). Every wired folder
 //      links its skills through that pointer, so a `git pull` here updates all of them at once.
-//   4. puts `reinstall-brain` and `reinstall-hub` on your PATH with `npm link`.
+//   4. puts `reinstall-brain` and `reinstall-hub` on your PATH with `npm link`, and writes shims in
+//      ~/.reinstall-brain/shim/ that work from any process, PATH or not (skill preambles, hooks).
 //   5. with --hub <folder>: creates (or adopts) a hub there and wires its skills.
 //
 // Then: open the hub folder with your agent and run /hub, or `reinstall-hub connect <repo>`.
@@ -101,6 +102,31 @@ try {
   onPath = true;
 } catch {}
 say(onPath ? '[ok] reinstall-brain and reinstall-hub are on your PATH' : `[note] reinstall-brain is not on this shell's PATH yet. Open a new terminal, or run it as: node ${path.join(HERE, 'dist', 'cli', 'brain.js')}`);
+
+// 4b. Stable shims. A version manager (fnm, nvm, volta) can put npm's links on a PATH that only its
+// own shells see, so an agent's tool runner, a skill preamble or a hook may not find the CLI. The
+// shims in ~/.reinstall-brain/shim/ always work: they name node by its real path (falling back to
+// any node on PATH) and run this clone's build.
+if (!IS_WIN) {
+  const shimDir = path.join(HERE, 'shim');
+  let nodeBin = process.execPath;
+  try { nodeBin = fs.realpathSync(process.execPath); } catch {}
+  if (!dryRun) fs.mkdirSync(shimDir, { recursive: true });
+  for (const [name, entry] of [['reinstall-brain', 'brain.js'], ['reinstall-hub', 'hub.js']]) {
+    const body = `#!/bin/sh
+# Written by reinstall-brain setup.mjs: runs the CLI without depending on PATH. Re-run setup after
+# changing Node versions (it falls back to any node on PATH meanwhile).
+NODE='${nodeBin.replace(/'/g, "'\\''")}'
+[ -x "$NODE" ] || NODE=$(command -v node) || { echo "${name}: node not found; re-run setup.mjs" >&2; exit 127; }
+exec "$NODE" '${path.join(HERE, 'dist', 'cli', entry).replace(/'/g, "'\\''")}' "$@"
+`;
+    if (!dryRun) {
+      fs.writeFileSync(path.join(shimDir, name), body);
+      fs.chmodSync(path.join(shimDir, name), 0o755);
+    }
+  }
+  say(`[shim] ~/.reinstall-brain/shim/reinstall-brain and reinstall-hub (node: ${nodeBin})`);
+}
 
 // 5. A hub.
 if (hubAt) {

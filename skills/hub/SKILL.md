@@ -5,13 +5,13 @@ argument-hint: "[setup|goals|prioritize|today|connect <repo>|status|sync]"
 ---
 
 ## This hub
-!`reinstall-hub status 2>/dev/null || echo "Not a hub here (or the reinstall-brain CLI is not installed): see Setup"`
+!`"$(command -v reinstall-hub || echo ~/.reinstall-brain/shim/reinstall-hub)" status 2>/dev/null || echo "Not a hub here (or the reinstall-brain CLI is not installed): see Setup"`
 
 ## Goals
-!`reinstall-hub goals 2>/dev/null || true`
+!`"$(command -v reinstall-hub || echo ~/.reinstall-brain/shim/reinstall-hub)" goals 2>/dev/null || true`
 
 ## Hubs on this machine
-!`reinstall-hub list 2>/dev/null || true`
+!`"$(command -v reinstall-hub || echo ~/.reinstall-brain/shim/reinstall-hub)" list 2>/dev/null || true`
 
 ---
 
@@ -72,7 +72,7 @@ reinstall-hub list                         # hubs on this machine (* = default)
 ```
 
 A key is `<brain>/<id>`. If `reinstall-hub` is not on PATH but `~/.reinstall-brain` exists, run
-`node ~/.reinstall-brain/dist/cli/hub.js` instead. With neither, follow "Without the CLI" in
+`~/.reinstall-brain/shim/reinstall-hub` instead (setup writes it; it finds node by itself). With neither, follow "Without the CLI" in
 `brain/HUB.md`.
 
 ---
