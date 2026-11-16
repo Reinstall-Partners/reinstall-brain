@@ -183,12 +183,14 @@ async function main(argv: string[]): Promise<number> {
           }
           if (r.skipped.length) console.log(`  skipped ${r.skipped.length}: ${[...new Set(r.skipped.map((x) => x.reason))].join('; ')}`);
           console.log(`  unresolved links ${r.unresolvedLinks.length}, path rewrites ${r.pathRewrites}, ranking rows ${r.rankingExported}`);
+          if (r.updated.length) console.log(`  caught up ${r.updated.length} records whose old row changed since the last run`);
+          for (const c of r.conflicts) console.log(`  CONFLICT legacy #${c.legacy_id} -> ${c.path}: changed in both the old brain and the record; left alone`);
           for (const [t, n] of Object.entries(r.swarmRowsExported)) console.log(`  swarm table ${t}: ${n} rows exported to brain/.local/legacy-swarm.json`);
           for (const d of r.docsMoved) console.log(`  moved ${d}`);
           if (r.written) console.log(`  lint: ${errors.length} errors, ${issues.length - errors.length} warnings`);
           for (const e of errors.slice(0, 20)) console.log(`    ${e.path}: ${e.message}`);
         });
-        return r.written && errors.length ? 1 : 0;
+        return (r.written && errors.length) || r.conflicts.length ? 1 : 0;
       }
       case 'lint': {
         const issues = lintBrain(brain, opened.db);

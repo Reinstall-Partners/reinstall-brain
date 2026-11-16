@@ -2,6 +2,7 @@
 // One-time tool: reads the old database, never writes to it.
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, renameSync, rmdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { openDb } from './sqlite.js';
@@ -24,6 +25,10 @@ export interface MigrateReport {
   records: number;
   skipped: { legacy_id: string; reason: string }[];
   unresolvedLinks: { legacy_id: string; field: string; target: string }[];
+  /** Catch-up runs: records refreshed because the old row changed after the last migration. */
+  updated: string[];
+  /** Old row and record both changed since the last migration: left alone, needs a person. */
+  conflicts: { legacy_id: string; id: string; path: string }[];
   rankingExported: number;
   swarmRowsExported: Record<string, number>;
   docsMoved: string[];
@@ -74,6 +79,8 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
     records: 0,
     skipped: [],
     unresolvedLinks: [],
+    updated: [],
+    conflicts: [],
     rankingExported: 0,
     swarmRowsExported: {},
     docsMoved: [],
@@ -84,8 +91,14 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
   const src = await openDb(opts.from);
   const rows = src.prepare('SELECT * FROM logs ORDER BY id').all();
 
-  // Existing records (re-runs are idempotent: a legacy id already migrated is skipped).
+  // Existing records. Re-runs are catch-ups: rows already migrated are refreshed only when the old row
+  // changed and the record file did not (both hashes are kept in brain/.local/migration.json).
+  const statePath = path.join(brain.dir, '.local', 'migration.json');
+  const state: Record<string, { id: string; row: string; file: string; path: string }> = existsSync(statePath)
+    ? JSON.parse(readFileSync(statePath, 'utf8'))
+    : {};
   const existingLegacy = new Map<string, string>();
+  const existingPath = new Map<string, string>();
   const takenIds = new Set<string>();
   for (const dir of brain.typeDirs.values()) {
     if (!existsSync(dir)) continue;
@@ -93,9 +106,13 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
       const m = /^([0-9a-z]+)-/.exec(f);
       if (m) takenIds.add(m[1]);
       const lm = /^legacy_id: ['"]?([^'"\n]+)['"]?$/m.exec(readFileSync(path.join(dir, f), 'utf8').slice(0, 2000));
-      if (lm && m) existingLegacy.set(lm[1], m[1]);
+      if (lm && m) {
+        existingLegacy.set(lm[1], m[1]);
+        existingPath.set(lm[1], path.join(dir, f));
+      }
     }
   }
+  const sha = (t: string) => createHash('sha256').update(t).digest('hex').slice(0, 16);
 
   // Pass 1: give every row a new id.
   const idMap = new Map<string, string>(existingLegacy);
@@ -108,7 +125,7 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
   }
 
   const ranking: { id: string; legacy_id: string; type: string; status: string; title: string; focus: number; priority: number | null; pillar: string | null }[] = [];
-  const files: { file: string; text: string }[] = [];
+  const files: { file: string; text: string; legacy: string; id: string; row: string; replaces?: string }[] = [];
 
   // Pass 2: build records.
   for (const r of rows) {
@@ -116,9 +133,20 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
     const type = String(r.type);
     const status = String(r.status ?? 'active');
     report.sourceCounts[`${type}/${status}`] = (report.sourceCounts[`${type}/${status}`] ?? 0) + 1;
+    const rowHash = sha(JSON.stringify(r));
+    let replaces: string | undefined;
     if (existingLegacy.has(legacy)) {
-      report.skipped.push({ legacy_id: legacy, reason: 'already migrated' });
-      continue;
+      const prev = state[legacy];
+      const current = existingPath.get(legacy)!;
+      if (!prev || prev.row === rowHash) {
+        report.skipped.push({ legacy_id: legacy, reason: 'already migrated' });
+        continue;
+      }
+      if (sha(readFileSync(current, 'utf8')) !== prev.file) {
+        report.conflicts.push({ legacy_id: legacy, id: existingLegacy.get(legacy)!, path: path.relative(brain.root, current) });
+        continue;
+      }
+      replaces = current;
     }
     if (!CORE_TYPES[type]) {
       report.skipped.push({ legacy_id: legacy, reason: `unknown type "${type}"` });
@@ -193,7 +221,12 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
     const rw = rewritePaths(String(r.body ?? ''));
     report.pathRewrites += rw.n;
     const dir = brain.typeDirs.get(type)!;
-    files.push({ file: path.join(dir, `${id}-${slugify(String(fields.title))}.md`), text: formatRecord(fields, rw.text) });
+    files.push({
+      file: replaces ?? path.join(dir, `${id}-${slugify(String(fields.title))}.md`),
+      text: formatRecord(fields, rw.text),
+      legacy, id, row: rowHash, replaces,
+    });
+    if (replaces) report.updated.push(id);
     report.migratedCounts[`${type}/${fields.status}`] = (report.migratedCounts[`${type}/${fields.status}`] ?? 0) + 1;
     report.records++;
   }
@@ -213,9 +246,11 @@ export async function migrateBrain(brain: Brain, opts: MigrateOptions): Promise<
   for (const f of files) {
     mkdirSync(path.dirname(f.file), { recursive: true });
     writeFileSync(f.file, f.text);
+    state[f.legacy] = { id: f.id, row: f.row, file: sha(f.text), path: path.relative(brain.dir, f.file).split(path.sep).join('/') };
   }
   const local = path.join(brain.dir, '.local');
   mkdirSync(local, { recursive: true });
+  writeFileSync(statePath, JSON.stringify(state));
   writeFileSync(path.join(local, 'legacy-ranking.json'), JSON.stringify(ranking, null, 2));
   if (swarmTables.length) writeFileSync(path.join(local, 'legacy-swarm.json'), JSON.stringify(swarm, null, 2));
   if (opts.moveDocs) report.docsMoved = moveDocs(brain);

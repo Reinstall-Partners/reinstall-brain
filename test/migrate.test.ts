@@ -71,5 +71,26 @@ describe('migrateBrain', () => {
     const again = await migrateBrain(brain, { from: path.join(root, 'cowork/brain/BRAIN.db') });
     expect(again.records).toBe(0);
     expect(again.skipped.length).toBe(4);
+
+    // Live work after the first run: a session on the old kit adds a row and changes two others.
+    const live = new DatabaseSync(path.join(root, 'cowork', 'brain', 'BRAIN.db'));
+    live.prepare('INSERT INTO logs (id, created_at, type, title, status) VALUES (5, ?, ?, ?, ?)').run('2026-07-05 09:00:00', 'task', 'Written late', 'active');
+    live.exec("UPDATE logs SET status='done', completed_at='2026-07-06 09:00:00' WHERE id=4");
+    live.exec("UPDATE logs SET body='changed in the old brain' WHERE id=3");
+    live.close();
+    // ...while someone also edited record 3 by hand in the new brain.
+    const o2 = await openFresh(brain);
+    const rec3 = path.join(root, findRecord(o2, '3')!.path);
+    o2.db.close();
+    writeFileSync(rec3, readFileSync(rec3, 'utf8') + '\nEdited in the new brain.\n');
+    const catchUp = await migrateBrain(brain, { from: path.join(root, 'cowork/brain/BRAIN.db') });
+    expect(catchUp.updated.length).toBe(1);
+    expect(catchUp.conflicts.map((c) => c.legacy_id)).toEqual(['3']);
+    const o3 = await openFresh(brain);
+    expect(findRecord(o3, '5')?.title).toBe('Written late');
+    expect(findRecord(o3, '4')?.status).toBe('done');
+    expect(findRecord(o3, '4')?.id).toBe(task.id);
+    expect(findRecord(o3, '3')?.body).toContain('Edited in the new brain.');
+    o3.db.close();
   });
 });
