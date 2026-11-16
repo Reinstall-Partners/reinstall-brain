@@ -335,7 +335,7 @@ DROP TABLE IF EXISTS items;
 CREATE TABLE items (
   key TEXT PRIMARY KEY, brain TEXT NOT NULL, ord INTEGER NOT NULL, id TEXT NOT NULL, type TEXT, title TEXT,
   status TEXT, created TEXT, due TEXT, assignee TEXT, tags TEXT, file TEXT, serves TEXT, covers TEXT,
-  measure TEXT, done_when TEXT, plan TEXT, plan_id TEXT, plan_brain TEXT, managed_by TEXT, ranking TEXT
+  measure TEXT, done_when TEXT, plan TEXT, plan_id TEXT, plan_brain TEXT, managed_by TEXT, ranking TEXT, project TEXT
 );
 CREATE TABLE IF NOT EXISTS brains (name TEXT PRIMARY KEY, ord INTEGER, root TEXT, records INTEGER, error TEXT);
 `;
@@ -357,7 +357,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM items; DELETE FROM brains;');
-    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     const insB = db.prepare('INSERT OR REPLACE INTO brains VALUES (?,?,?,?,?)');
     const sources = [{ name: hub.config.name, path: hub.root }, ...hub.config.connects];
     for (const [ord, c] of sources.entries()) {
@@ -369,10 +369,10 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
         continue;
       }
       const opened = await openFresh(openBrain(root));
-      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan, json_extract(meta, '$.plan_id') AS plan_id, json_extract(meta, '$.plan_brain') AS plan_brain, json_extract(fields, '$.managed_by') AS managed_by, json_extract(fields, '$.ranking') AS ranking FROM records").all();
+      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when, json_extract(meta, '$.plan_path') AS plan, json_extract(meta, '$.plan_id') AS plan_id, json_extract(meta, '$.plan_brain') AS plan_brain, json_extract(fields, '$.managed_by') AS managed_by, json_extract(fields, '$.ranking') AS ranking, json_extract(fields, '$.project') AS project FROM records").all();
       opened.db.close();
       for (const r of rows) {
-        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null, r.plan_id == null ? null : String(r.plan_id), r.plan_brain ?? null, r.managed_by ?? null, r.ranking == null ? null : String(r.ranking));
+        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null, r.plan ?? null, r.plan_id == null ? null : String(r.plan_id), r.plan_brain ?? null, r.managed_by ?? null, r.ranking == null ? null : String(r.ranking), r.project ?? null);
       }
       result.brains.push({ name: c.name, root, records: rows.length });
       insB.run(c.name, ord, root, rows.length, null);
@@ -584,7 +584,9 @@ function positionIndex(keys: string[], pos: Position): number {
 /**
  * The order of every open task (D1 of the hub's design): pinned tasks first, in the order of
  * priorities.md; then everything else, derived, by
- *   1. project order (the hub's own brain, then `connects:` in file order),
+ *   1. project order (`connects:` in file order). A task in the hub's own brain ranks as the project it
+ *      is for: its `project:` field, else the plan folder it belongs to when that names a project
+ *      (`brain/plans/<project>/…`); one for no project comes after every project,
  *   2. the rank of the goal the task rolls up to (ranked goals first, then unranked goals, then none),
  *   3. its plan: a plan's open phases stay together, in phase order, placed by the plan's earliest
  *      due date and then its first open phase's age; a task outside any plan is a group of one,
@@ -716,8 +718,15 @@ function derivedOrder(hub: Brain, db: Db, gm: GoalMap): Record<string, unknown>[
   const rows = db.prepare("SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked')").all();
   const goalRank = new Map(readPrioritiesFile(hub).goals.map((k, i) => [k, i]));
   const NONE = Number.MAX_SAFE_INTEGER;
-  // Project rank from the live connects: list (the index may predate a reorder); the hub's own brain first.
-  const projectRank = new Map<string, number>([[hub.config.name, -1], ...hub.config.connects.map((c, i) => [c.name, i] as [string, number])]);
+  // Project rank from the live connects: list (the index may predate a reorder).
+  const projectRank = new Map<string, number>(hub.config.connects.map((c, i) => [c.name, i] as [string, number]));
+  const rankOfProject = (r: Record<string, unknown>): number => {
+    if (r.brain !== hub.config.name) return projectRank.get(String(r.brain)) ?? NONE;
+    // The hub's own tasks rank as the project they are for, so reordering projects moves them too.
+    const scope = typeof r.plan === 'string' ? /^brain\/plans\/([^/]+)\//.exec(r.plan)?.[1] : undefined;
+    const p = [r.project as string | undefined, scope].find((n) => n && projectRank.has(n));
+    return p ? projectRank.get(p)! : hub.config.connects.length;
+  };
   const rankOf = (r: Record<string, unknown>): number => {
     const g = gm.resolve(String(r.key), String(r.brain), (r.serves as string) ?? null);
     const ranked = [g.hub_goal, g.goal].map((k) => (k ? goalRank.get(k) : undefined)).find((x) => x !== undefined);
@@ -736,7 +745,7 @@ function derivedOrder(hub: Brain, db: Db, gm: GoalMap): Record<string, unknown>[
   const keyed = rows.map((r) => {
     const g = groupOf(r);
     const gi = groups.get(g)!;
-    return { r, k: [projectRank.get(String(r.brain)) ?? NONE, rankOf(r), gi.due, gi.created, g, phaseNumber(String(r.title)) ?? NONE, (r.due as string) || '9999', String(r.created)] as (number | string)[] };
+    return { r, k: [rankOfProject(r), rankOf(r), gi.due, gi.created, g, phaseNumber(String(r.title)) ?? NONE, (r.due as string) || '9999', String(r.created)] as (number | string)[] };
   });
   keyed.sort((a, b) => {
     for (let i = 0; i < a.k.length; i++) if (a.k[i] !== b.k[i]) return a.k[i] < b.k[i] ? -1 : 1;

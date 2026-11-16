@@ -6,7 +6,9 @@ brains it connects under `connects:`, in **project order**: the first is the mos
 The hub holds what no project brain does: the owner's ranking. The owner ranks **projects** (the order
 of `connects:`) and **goals** (`brain/priorities.md`); every open task then takes its place from those:
 
-1. its project's rank (the hub's own brain first),
+1. its project's rank. A task kept in the hub's own brain ranks as the project it is for: its
+   `project: <name>` field, or else its plan's folder when that names a project
+   (`brain/plans/<project>/…`). One for no project comes after every project,
 2. the rank of the goal it serves (ranked goals first, then unranked goals, then none),
 3. its plan: a plan's open phases stay together, in phase order,
 4. its due date, then its age.

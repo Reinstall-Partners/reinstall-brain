@@ -105,6 +105,25 @@ describe('derived order', () => {
   });
 });
 
+describe('the hub\'s own tasks', () => {
+  it('rank as the project they are for, by project: or by plan folder, and the rest come last', async () => {
+    const { hub, db, keys, hubRoot } = await setup();
+    let o = await openFresh(openBrain(hubRoot));
+    const forWidgets = createRecord(o, { type: 'task', title: 'Hub task for widgets', extra: { project: 'widgets', created: day(1) } });
+    const planned = createRecord(o, { type: 'task', title: 'Plan 000 Phase 1: Move acme', extra: { meta: { plan_path: 'brain/plans/acme/000_2026-01-01_move.md' }, created: day(1) } });
+    const loose = createRecord(o, { type: 'task', title: 'Hub task for nothing', extra: { created: day(1) } });
+    o.db.close();
+    await indexHub(hub, db);
+    const k = (id: string) => `the-hub/${id}`;
+    const order = () => priorities(hub, db).ranked.map((i) => i.key);
+    // The hub's plan task sits in acme's block, its widgets task in widgets' block, and the loose one last.
+    expect(order()).toEqual([keys.urgent, keys.p1, keys.p2, k(planned.id), keys.loose, k(forWidgets.id), keys.w1, keys.wg, k(loose.id)]);
+    placeProject(hub, db, 'widgets', { top: true });
+    expect(order()).toEqual([k(forWidgets.id), keys.w1, keys.wg, keys.urgent, keys.p1, keys.p2, k(planned.id), keys.loose, k(loose.id)]);
+    db.close();
+  });
+});
+
 describe('plans as one item', () => {
   it('folds a plan into one inbox row, advances it, and pins a whole plan', async () => {
     const base = mkdtempSync(path.join(os.tmpdir(), 'rb-plan-'));
