@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import { readFileSync, mkdirSync } from 'node:fs';
+import { openDb } from '../core/sqlite.js';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
 import { locateBrain, requireBrain } from '../core/brain.js';
@@ -22,8 +24,8 @@ Read
   sql "<SELECT ...>"                 read-only SQL over the index (table: records)
 
 Write
-  new <type> "<title>" [--body TEXT] [--tag X]... [--parent ID] [--scope P] [--author WHO]
-  set <id> field=value... [--log "who: what happened"]   change fields; value "" removes one
+  new <type> "<title>" [--body TEXT|--body-file F] [--tag X]... [--parent ID] [--scope P] [--author WHO] [--set field=value]...
+  set <id> field=value... [--log "who: what happened"]   change fields; meta.key=value for nested; "" removes
   done <id> [--log "who: what happened"]
   supersede <old-id> <new-id>        the new record replaces the old one
 
@@ -34,9 +36,30 @@ Maintain
                                      convert a TB Claude Kit brain into records (one-time)
   lint                               check every record; exit 1 on errors
   where                              print the brain this folder uses
+  kitdb <name> "<sql>" [--json]      read/write SQL on a kit's own live-state database, brain/.local/<name>.db
   doctor                             check this machine can run the brain
   version
 `;
+
+/** Parse field=value pairs. Dotted keys (meta.plan_id=002) set nested values; list fields split on commas; "" removes. */
+function parseAssignments(pairs: string[]): Record<string, unknown> {
+  const changes: Record<string, unknown> = {};
+  for (const kv of pairs) {
+    const i = kv.indexOf('=');
+    if (i < 1) throw new Error(`"${kv}" is not field=value`);
+    const key = kv.slice(0, i);
+    const raw = kv.slice(i + 1);
+    const value = raw === '' ? undefined : ['tags', 'blocked_by', 'docs'].includes(key) ? raw.split(',').map((x) => x.trim()).filter(Boolean) : raw;
+    const parts = key.split('.');
+    if (parts.length === 1) changes[key] = value;
+    else {
+      let node = (changes[parts[0]] ??= {}) as Record<string, unknown>;
+      for (const part of parts.slice(1, -1)) node = (node[part] ??= {}) as Record<string, unknown>;
+      node[parts.at(-1)!] = value;
+    }
+  }
+  return changes;
+}
 
 function printRecords(rows: RecordRow[]): void {
   for (const r of rows) console.log(`${r.id}  ${r.type.padEnd(9)} ${r.status.padEnd(10)} ${r.title}`);
@@ -76,6 +99,21 @@ async function main(argv: string[]): Promise<number> {
         for (const c of created) console.log(`  created ${c}`);
         if (created.length === 0) console.log('  already set up; nothing changed');
       });
+      return 0;
+    }
+    case 'kitdb': {
+      const [name, ...sqlParts] = pos;
+      if (!name || !/^[a-z0-9-]+$/.test(name) || !sqlParts.length) throw new Error('usage: reinstall-brain kitdb <name> "<sql>"');
+      const brain = requireBrain();
+      mkdirSync(path.join(brain.dir, '.local'), { recursive: true });
+      const db = await openDb(path.join(brain.dir, '.local', `${name}.db`));
+      try {
+        const sql = sqlParts.join(' ');
+        const rows = /^\s*(select|with|pragma)\b/i.test(sql) ? db.prepare(sql).all() : (db.exec(sql), []);
+        out(rows, () => { if (rows.length) console.table(rows); });
+      } finally {
+        db.close();
+      }
       return 0;
     }
     case 'where': {
@@ -133,9 +171,12 @@ async function main(argv: string[]): Promise<number> {
       case 'new': {
         const [type, ...titleParts] = pos;
         if (!type || !titleParts.length) throw new Error('usage: reinstall-brain new <type> "<title>"');
+        const bodyFile = a.value('body-file');
         const r = createRecord(opened, {
-          type, title: titleParts.join(' '), body: a.value('body'), tags: a.values('tag'),
-          parent: a.value('parent'), scope: a.value('scope'), author: a.value('author'),
+          type, title: titleParts.join(' '),
+          body: bodyFile ? readFileSync(bodyFile === '-' ? 0 : bodyFile, 'utf8') : a.value('body'),
+          tags: a.values('tag'), parent: a.value('parent'), scope: a.value('scope'), author: a.value('author'),
+          extra: parseAssignments(a.values('set')),
         });
         out(r, () => console.log(`${r.id}  ${r.path}`));
         return 0;
@@ -143,15 +184,7 @@ async function main(argv: string[]): Promise<number> {
       case 'set': {
         const [ref, ...assignments] = pos;
         if (!ref || !assignments.length) throw new Error('usage: reinstall-brain set <id> field=value...');
-        const changes: Record<string, unknown> = {};
-        for (const kv of assignments) {
-          const i = kv.indexOf('=');
-          if (i < 1) throw new Error(`"${kv}" is not field=value`);
-          const k = kv.slice(0, i);
-          const v = kv.slice(i + 1);
-          changes[k] = v === '' ? undefined : ['tags', 'blocked_by', 'docs'].includes(k) ? v.split(',').map((s) => s.trim()) : v;
-        }
-        const r = updateRecord(opened, ref, changes, a.value('log'));
+        const r = updateRecord(opened, ref, parseAssignments(assignments), a.value('log'));
         out(r, () => console.log(`${r.id}  ${r.path}`));
         return 0;
       }

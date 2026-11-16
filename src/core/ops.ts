@@ -145,7 +145,15 @@ export function updateRecord(opened: Opened, ref: string, changes: Fields, appen
   const fields = { ...rec.fields };
   for (const [k, v] of Object.entries(changes)) {
     if (v === undefined) delete fields[k];
-    else fields[k] = v;
+    else if (k === 'meta' && typeof v === 'object' && !Array.isArray(v)) {
+      const meta = { ...((fields.meta as Record<string, unknown>) ?? {}) };
+      for (const [mk, mv] of Object.entries(v as Record<string, unknown>)) {
+        if (mv === undefined) delete meta[mk];
+        else meta[mk] = mv;
+      }
+      if (Object.keys(meta).length) fields.meta = meta;
+      else delete fields.meta;
+    } else fields[k] = v;
   }
   // No automatic `updated` stamp: it would change on every edit, so any two concurrent edits to the
   // same record would conflict in git. Git history already records when a file changed.
