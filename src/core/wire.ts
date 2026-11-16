@@ -32,7 +32,7 @@ const BLOCK_END = '<!-- <<< reinstall-brain <<< -->';
 const IGNORE_BEGIN = '# >>> reinstall-brain (managed by reinstall-brain; edit outside this block) >>>';
 const IGNORE_END = '# <<< reinstall-brain <<<';
 const HOOK_MARK = 'reinstall-brain/hooks/session-start.mjs';
-const HOOK_MARK_RE = /reinstall-brain[\\/]hooks[\\/]session-start\.mjs/;
+const HOOK_MARK_RE = /reinstall-brain[\\/]+hooks[\\/]+session-start\.mjs/;
 
 export type Role = 'brain' | 'hub';
 
@@ -172,7 +172,7 @@ function settingsHook(root: string, src: { abs: string; shown: string; viaPointe
       return { kind: 'occupied', what: '.claude/settings.json', note: 'is not valid JSON; add the SessionStart hook by hand' };
     }
   }
-  const script = src.viaPointer ? `${src.shown}/hooks/session-start.mjs` : JSON.stringify(path.join(src.abs, 'hooks', 'session-start.mjs'));
+  const script = src.viaPointer ? `${src.shown}/hooks/session-start.mjs` : `"${path.join(src.abs, 'hooks', 'session-start.mjs')}"`;
   const command = `node ${script}`;
   cfg.hooks ??= {};
   const groups: any[] = Array.isArray(cfg.hooks.SessionStart) ? cfg.hooks.SessionStart : [];

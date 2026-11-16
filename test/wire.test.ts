@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Windows runners are slow at git init and links.
+vi.setConfig({ testTimeout: 30000 });
 import { mkdtempSync, readFileSync, writeFileSync, lstatSync, existsSync, mkdirSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
