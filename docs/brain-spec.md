@@ -111,10 +111,14 @@ At the hub layer, a record is named `<brain name>/<id>`, for example `web-app/7f
 | `parent` | no | id | The record this came out of |
 | `supersedes` | no | id | The record this one replaces |
 | `superseded_by` | no | id | Set on the old record when it is replaced |
+| `serves` | no | id | The goal this record works toward (tasks; a goal can serve a larger goal). One goal |
 | `blocked_by` | no | list of ids | Records that must be done first (tasks) |
 | `due` | no | ISO 8601 date | When it is due (tasks, milestones) |
 | `completed` | no | ISO 8601 date-time | When `status` became `done` |
 | `importance` | no | integer 0–10 | How much it matters, for notes and insights. Not a rank |
+| `done_when` | no | string | When a goal counts as reached (goals) |
+| `measure` | no | string | How to read a goal's progress: a command, a query or a count (goals) |
+| `covers` | no | list of `<brain>/<id>` | Project goals and tasks a hub goal counts (hub goals) |
 | `docs` | no | list of paths | Long documents this record points to, relative to `brain/` |
 | `legacy_id` | no | string | The record's id in a system it was migrated from |
 | `meta` | no | mapping | Anything else a tool needs to keep, under its own key |
@@ -159,6 +163,7 @@ concurrent updates mergeable.
 | `insight` | `insights/` | Something learned that should change future work |
 | `task` | `tasks/` | Work to do |
 | `milestone` | `milestones/` | A notable point reached, or a dated target |
+| `goal` | `goals/` | An outcome the work is for, with `done_when`, `measure` and a `## Pace` log; `done` when reached |
 
 ## brain.yaml
 
@@ -234,7 +239,11 @@ connects:
 ```
 
 The hub keeps its own records like any brain (cross-project decisions, daily plans as notes) and
-adds `priorities.md`: the owner's personal ranking of tasks across every connected brain.
+adds `priorities.md`: the owner's personal ranking of tasks across every connected brain, and,
+under an optional `## Goals` heading, a ranking of goals. Goals live at both levels: a project's
+goals in its own brain, and goals that span projects in the hub's brain. A task `serves` one goal in
+its own brain; a hub goal reaches project work one way, by listing keys in `covers` (a brain never
+knows its hubs).
 
 ```markdown
 # Priorities

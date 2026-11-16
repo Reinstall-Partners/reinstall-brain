@@ -1,8 +1,11 @@
 ---
 name: brain
 description: Read, write and search this repo's brain (Reinstall Brain): decisions, tasks, questions, insights, notes and milestones as markdown records. Also sets a brain up in a repo. The everyday interface for project knowledge and task tracking.
-argument-hint: "[setup|update|audit|add <type>|done [id]|search <words>|show <id>|resolve <id>|supersede <old> [new]|depends <id> <on>|tag <id> <tags>|lint]"
+argument-hint: "[setup|update|audit|goals|add <type>|done [id]|search <words>|show <id>|resolve <id>|supersede <old> [new]|depends <id> <on>|tag <id> <tags>|lint]"
 ---
+
+## Goals
+!`reinstall-brain sql "SELECT id, title, json_extract(fields,'$.measure') AS measure, due, path FROM records WHERE type = 'goal' AND status = 'active' ORDER BY created" 2>/dev/null || true`
 
 ## Active tasks
 !`reinstall-brain sql "SELECT id, status, substr(created,1,10) AS created, title, path FROM records WHERE type = 'task' AND status IN ('active','blocked') ORDER BY status = 'blocked' DESC, created DESC LIMIT 25" 2>/dev/null || echo "No brain here, or the reinstall-brain CLI is not installed: see Setup"`
@@ -33,7 +36,8 @@ Dispatch on the first word:
 - (empty) — **Review**: the "what's going on" view
 - `update` — **Update**: make the brain match what just happened this session
 - `audit` — **Audit**: a health check of the whole brain
-- `add <type>` — **Add**: create a record (note, decision, question, insight, task, milestone)
+- `goals` — **Goals**: each goal, its pace, and the tasks serving it (or none)
+- `add <type>` — **Add**: create a record (note, decision, question, insight, task, milestone, goal)
 - `done <id>` — **Done**: finish a task. `done` with no id closes the session: run **Update**
 - `search <words>` — **Search**: full-text search over titles, bodies and tags
 - `show <id>` — **Show**: one record, its children and its links
@@ -113,13 +117,34 @@ reinstall-brain sql "SELECT id, substr(created,1,10) AS created, title, substr(b
 With a tag argument, filter tasks and questions with `--tag <tag>`.
 
 Present it conversationally:
-- Active tasks, grouped by tag or theme where that helps
+- Goals first, each with how many open tasks serve it (`reinstall-brain goals --json`)
+- Active tasks, grouped by the goal they serve (or by tag) where that helps
 - Blocked tasks, with what each waits on (`blocked_by`) and whether that has moved
 - Open questions that need an answer
 - Recent decisions that set direction
 
 The brain holds no ranking. If the user keeps a hub, the order of what matters lives in its
 `priorities.md`; otherwise offer your view of what to do next and hold it loosely.
+
+---
+
+## Goals
+
+A goal is an outcome the work is for. Its fields: `done_when` (when it counts as reached), `measure`
+(how to read progress: a command, a query, a count), optional `due`, and a `## Pace` log in the body.
+A task serves one goal: `serves: <goal id>`.
+
+```bash
+reinstall-brain goals --json          # each active goal with open_tasks and done_tasks, and the unserved tasks
+```
+
+1. Show each goal as a link with its latest Pace line and how many open tasks serve it.
+2. **Read the pace** when asked, or when the last Pace line is more than a week old: run or read the
+   measure, then append a line to the goal's `## Pace` section: `- YYYY-MM-DD: <reading>` (edit the file).
+3. **Tasks serving no goal:** put them to the user in rounds of up to 4 with your question tool. For each,
+   offer the active goals that fit (recommendation first) and **No goal: drop it** or **No goal: keep**.
+   Record a choice with `reinstall-brain set <task id> serves=<goal id>`, or drop it (see **Done**).
+4. **A goal reached:** `reinstall-brain done <goal id> --log "claude (for <owner>): <the reading that met done_when>"`.
 
 ---
 
@@ -209,6 +234,16 @@ reinstall-brain sql "SELECT q.id, substr(q.created,1,10) AS created, CAST(julian
 For each: has the answer emerged from recent work or decisions? If so, propose resolving it (see
 **Resolve**). Questions that block tasks come first.
 
+### 4b. Goals
+
+```bash
+reinstall-brain goals --json
+```
+
+Flag goals with no open tasks serving them (stalled, or done without being closed), goals whose last
+Pace line is old, and open tasks serving no goal. Propose: tie each unserved task to a goal or drop
+it, close goals that are reached, and read the pace of the stale ones.
+
 ### 5. Decisions without reasoning
 
 A decision whose body doesn't say why can't be revisited well. Flag short bodies and untouched
@@ -274,6 +309,10 @@ Usage: `add <type>` where type is `note`, `decision`, `question`, `insight`, `ta
      `reinstall-brain sql "SELECT DISTINCT value FROM records, json_each(records.tags) ORDER BY value"`
    - **Parent**: the record this came out of, if any
    - **Importance** (notes and insights, optional): 0–10. It is not a rank
+   - **Goal a task serves**: for a task, when the brain has active goals, ask which one it serves
+     (one question, the likeliest goal first, plus **None**) and pass `--set serves=<goal id>`
+   - **For a goal**: the outcome as the title, plus `--set done_when="..."` and `--set measure="..."`
+     (and `--set due=YYYY-MM-DD` if there is a date). Its body says why it matters
 3. Present what you will write and wait for confirmation.
 4. Write it, with the body on stdin so quotes and newlines survive:
    ```bash

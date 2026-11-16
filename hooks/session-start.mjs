@@ -101,9 +101,16 @@ guard('brain', () => {
   const blockedTasks = blocked.filter((r) => r.type === 'task');
   const questions = active.filter((r) => r.type === 'question');
   const decisions = active.filter((r) => r.type === 'decision');
+  const goals = active.filter((r) => r.type === 'goal');
   let s = `## ${isHub ? 'Hub' : 'Brain'}: ${where.name} (auto-loaded at session start)\n\nRecords are in brain/, one markdown file each.`;
   const owner = git(['config', 'user.name'], root);
   if (owner) s += ` Write as \`--author "claude (for ${owner})"\`.`;
+  if (goals.length) {
+    s += `\n\n### Goals\n${goals.map((g) => {
+      const f = g.fields || {};
+      return `- ${g.id} ${g.title}${f.due ? ` (due ${f.due})` : ''}${f.measure ? `; measure: ${f.measure}` : ''} · ${g.path}`;
+    }).join('\n')}\nA task names the goal it serves with \`serves: <goal id>\`.`;
+  }
   s += `\n\n### Active tasks\n${tasks.length ? capped(tasks, LIMITS.tasks, 'reinstall-brain list --type task --status active') : 'None.'}`;
   if (blockedTasks.length) {
     s += `\n\n### Blocked tasks\n${capped(blockedTasks, LIMITS.tasks, 'reinstall-brain list --type task --status blocked', (r) => {
@@ -122,13 +129,19 @@ if (isHub) {
     const pr = cli(HUB_CLI, ['priorities', '--json', '--hub', root]);
     const inbox = cli(HUB_CLI, ['inbox', '--json', '--hub', root]);
     const status = cli(HUB_CLI, ['status', '--json', '--hub', root]);
+    const goals = cli(HUB_CLI, ['goals', '--json', '--hub', root]);
     const brains = (status.brains || []).filter((b) => b.name !== where.name);
     const missing = brains.filter((b) => b.error);
     let s = `## This folder is a hub\n\nIt connects ${brains.length} brain(s): ${brains.map((b) => b.name).join(', ') || 'none yet'}.`;
     if (missing.length) s += ` Not readable on this machine: ${missing.map((b) => `${b.name} (${b.error})`).join('; ')}.`;
     s += ` Ranked: ${pr.ranked.length}. In the inbox (open, not ranked): ${inbox.length}. Read \`brain/HUB.md\` before changing the ranking; the \`/hub\` skill runs setup and prioritizing.`;
+    const unserved = inbox.filter((i) => !i.goal).length;
+    s += ` Open goals: ${goals.ranked.length} ranked, ${goals.unranked.length} not ranked. Unranked tasks serving no goal: ${unserved}.`;
+    if (goals.ranked.length) {
+      s += `\n\n### Goals, ranked\n${goals.ranked.map((g) => `${g.rank}. ${g.key} ${g.title} (${g.level}, ${g.open_tasks} open task(s)${g.measure ? `; measure: ${g.measure}` : ''}) · ${g.file}`).join('\n')}`;
+    }
     if (pr.ranked.length) {
-      s += `\n\n### Top of the ranking\n${pr.ranked.slice(0, LIMITS.ranked).map((i) => `${i.rank}. ${i.key} ${i.title} · ${i.file}`).join('\n')}`;
+      s += `\n\n### Top of the ranking\n${pr.ranked.slice(0, LIMITS.ranked).map((i) => `${i.rank}. ${i.key} ${i.title}${i.goal_title ? ` (for: ${i.goal_title})` : ''} · ${i.file}`).join('\n')}`;
       if (pr.ranked.length > LIMITS.ranked) s += `\n- … ${pr.ranked.length - LIMITS.ranked} more: reinstall-hub priorities`;
     }
     sections.push(s);

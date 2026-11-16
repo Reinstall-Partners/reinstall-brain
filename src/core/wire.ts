@@ -20,7 +20,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HUB_TEMPLATES } from './templates.gen.js';
+import { HUB_TEMPLATES, TEMPLATES } from './templates.gen.js';
 
 const IS_WIN = process.platform === 'win32';
 
@@ -267,6 +267,16 @@ export function wire(root: string, role: Role, opts: { dryRun?: boolean } = {}):
     } catch {}
     const next = upsertBlock(text, BLOCK_BEGIN, BLOCK_END, guideBlock(role));
     out.push(writeIfChanged(p, next, dryRun) ? { kind: 'write', what: `${f} guide block` } : { kind: 'ok', what: `${f} guide block` });
+  }
+
+  // Record templates a newer version added (a goal template for brains made before goals, say).
+  for (const [rel, text] of Object.entries(TEMPLATES)) {
+    if (!rel.startsWith('templates/')) continue;
+    const p = path.join(root, 'brain', rel);
+    if (!existsSync(p)) {
+      writeIfChanged(p, text, dryRun);
+      out.push({ kind: 'write', what: `brain/${rel}` });
+    }
   }
 
   // Hub guide.

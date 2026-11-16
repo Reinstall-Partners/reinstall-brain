@@ -20,6 +20,19 @@ reminder:
 2. ops/7f3a  Renew the TLS certificate
 ```
 
+## Goals
+
+Goals are the outcomes the work is for, and the strongest signal for ranking.
+
+- **Hub goals** live in this hub's own brain (`brain/records/goals/`) and span projects ("first paying
+  client by March"). **Project goals** live in each project's brain.
+- A task names the one goal it serves, in its own brain: `serves: <goal id>`.
+- A hub goal counts project work by listing keys in `covers:` (`acme-web/k3x9`, a project goal or a
+  task). Links run one way: a project brain never names a hub.
+- `priorities.md` ranks goals under a `## Goals` heading, above the ranked tasks under `## Tasks`.
+- Every task in the hub resolves to a **goal** (its project goal, or a hub goal covering it) and a
+  **hub goal** (where it rolls up). A task with neither serves no goal: ask whether it should exist.
+
 ## With the CLI (preferred)
 
 | To | Run |
@@ -28,6 +41,11 @@ reminder:
 | see what is not ranked yet | `reinstall-hub inbox --json` (`--brain NAME`, `--limit N`) |
 | rank a task | `reinstall-hub place <brain>/<id> --top`, `--at N`, `--above <key>`, `--below <key>`, `--bottom` |
 | un-rank a task | `reinstall-hub unrank <brain>/<id>` |
+| see goals | `reinstall-hub goals --json` (ranked, then unranked, each with `open_tasks`, `measure`, `file`) |
+| rank a goal | `reinstall-hub place-goal <brain>/<id> --at N` (same positions as `place`) |
+| tie a hub goal to project work | `reinstall-hub cover <hub goal key> <brain>/<id>` (`uncover` removes) |
+| add a goal | in the hub or a project: `reinstall-brain new goal "<outcome>" --set done_when="..." --set measure="..."` |
+| tasks serving no goal | `reinstall-hub inbox --unserved --json` |
 | connect a repo | `reinstall-hub connect <path> [--name NAME]` (sets up its brain if it has none) |
 | check every brain | `reinstall-hub status` |
 | re-wire skills and guides | `reinstall-hub sync` (this hub), `reinstall-hub sync --all` (every hub on the machine) |
@@ -48,6 +66,9 @@ Everything above is plain files, so an agent with only file tools can do the sam
 3. **The ranking:** the numbered lines of `brain/priorities.md`. A key in the file whose task is no
    longer open should be removed. A task that is open and not in the file is in the inbox.
 4. **Ranking:** rewrite the numbered list in the new order, renumbering from 1. Keep the header lines.
+   Goals are ranked the same way under the `## Goals` heading; tasks go under `## Tasks`.
+5. **Goals:** files under `brain/records/goals/` in the hub and in each project. A task's goal is its
+   `serves:` id in its own brain; a hub goal's `covers:` lists `<brain>/<id>` keys it counts.
 
 ## Rules for an agent helping the owner prioritize
 
@@ -56,9 +77,10 @@ Everything above is plain files, so an agent with only file tools can do the sam
   reason in a few words, and offer a short set of choices. Use your question tool when you have one.
   Never hand the owner a wall of text to read.
 - **Name tasks by link,** `[Ship the importer](/abs/path/to/record.md)`, never by a bare key or id.
-- **Signals, strongest first:** project order from `brain.yaml`, then due dates, people waiting on the
-  owner, blocked work that this task unblocks, and age (an old untouched task may be dead: offer to drop
-  it).
+- **Signals, strongest first:** the goal a task serves and that goal's rank, then project order from
+  `brain.yaml`, due dates, people waiting on the owner, blocked work that this task unblocks, and age
+  (an old untouched task may be dead: offer to drop it). A task that serves no active goal is the first
+  candidate to drop.
 - **Never express priority inside a project brain.** Ranking lives only in `priorities.md`. Changing a
   task itself (dropping it, adding a due date) is a write to that project's brain: do it there, only
   when the owner says so.

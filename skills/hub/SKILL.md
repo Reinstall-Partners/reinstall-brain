@@ -1,11 +1,14 @@
 ---
 name: hub
 description: Work with a hub (Reinstall Brain), the one place that sees every connected project's brain and holds the owner's ranking of what matters. Sets a hub up, connects repos, and prioritizes across all projects in short rounds of choices, then plans the day. Use in a hub folder, or when the user asks to set up a hub, connect a repo, or prioritize across projects.
-argument-hint: "[setup|prioritize|today|connect <repo>|status|sync]"
+argument-hint: "[setup|goals|prioritize|today|connect <repo>|status|sync]"
 ---
 
 ## This hub
 !`reinstall-hub status 2>/dev/null || echo "Not a hub here (or the reinstall-brain CLI is not installed): see Setup"`
+
+## Goals
+!`reinstall-hub goals 2>/dev/null || true`
 
 ## Hubs on this machine
 !`reinstall-hub list 2>/dev/null || true`
@@ -26,6 +29,7 @@ Optional argument: `$ARGUMENTS`
 
 - (empty) in a hub: **Overview**, then offer the next step. Not in a hub: **Setup**.
 - `setup`: **Setup**: create or adopt a hub and connect repos
+- `goals`: **Goals**: set, rank and check the owner's goals
 - `prioritize`: **Prioritize**: rank the inbox in short rounds of choices
 - `today`: **Today**: a plan for the day from the top of the ranking
 - `connect <repo>`: **Connect** one repo
@@ -52,6 +56,10 @@ This skill exists so the owner can steer many projects without reading walls of 
 
 ```bash
 reinstall-hub status --json                # connected brains, record counts, problems
+reinstall-hub goals --json                 # ranked goals, then unranked open goals; open_tasks, measure, file
+reinstall-hub place-goal <key> --at N | --top | --bottom | --above <key> | --below <key>
+reinstall-hub cover <hub goal key> <key>   # a hub goal counts a project goal or task (uncover removes)
+reinstall-hub inbox --unserved --json      # unranked tasks that serve no goal
 reinstall-hub priorities --json            # ranked tasks: rank, key, title, status, due, file
 reinstall-hub inbox --json [--brain NAME]  # open tasks not ranked yet, in project order
 reinstall-hub place <key> --at N | --top | --bottom | --above <key> | --below <key>
@@ -72,10 +80,10 @@ A key is `<brain>/<id>`. If `reinstall-hub` is not on PATH but `~/.reinstall-bra
 ## Overview
 
 From the state above plus `reinstall-hub priorities --json` and `reinstall-hub inbox --json`, say in
-three or four lines: how many brains are connected (and any that are not readable here), the top 3
-ranked tasks as links, and how many open tasks wait unranked. Then ask what to do next with one
-question: **Prioritize the inbox** (recommended when the inbox holds more than a handful), **Plan
-today**, **Connect more repos**, **Look at the ranking**.
+three or four lines: the ranked goals (as links), how many brains are connected (and any that are
+not readable here), the top 3 ranked tasks as links, and how many open tasks wait unranked. Then ask
+what to do next with one question: **Set goals** (recommended when there are none), **Prioritize the
+inbox** (recommended when it holds more than a handful), **Plan today**, **Connect more repos**.
 
 ---
 
@@ -118,7 +126,36 @@ today**, **Connect more repos**, **Look at the ranking**.
    round or two). Reorder the `connects:` entries in `brain/brain.yaml` by hand.
 7. **Commit** the hub (`git add -A && git commit`) when the owner agrees, and each connected repo's
    new files (`brain/`, `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json`, `.gitignore`).
-8. Offer **Prioritize** next.
+8. Offer **Goals** next (then **Prioritize**).
+
+---
+
+## Goals
+
+Goals are the outcomes everything else is for. Few is better: 3 to 5 hub goals.
+
+1. **Load:** `reinstall-hub goals --json`.
+2. **None yet:** draft 3 to 5 candidates from what the brains already say (recent decisions, plans'
+   `## Goal` blocks, the project list, the hub's notes), each an outcome with a way to measure it.
+   Put them to the owner as one multi-select question (**keep** the ones that are right), then a round
+   to fix wording and `done_when` where needed. Ask about anything missing with a free-text option.
+3. **Write each kept goal** in the hub's own brain (a goal that belongs to one project goes in that
+   project's brain instead):
+   ```bash
+   reinstall-brain new goal "<the outcome>" --author "claude (for <owner>)" --set done_when="<when it counts as reached>" --set measure="<how to read progress>" [--set due=YYYY-MM-DD] --body-file - --json <<'EOF'
+   <why it matters, in a line or two>
+
+   ## Pace
+   - YYYY-MM-DD: <the reading today>
+   EOF
+   ```
+4. **Rank them:** one question, "Which goal matters most?", then the next, until all are placed:
+   `reinstall-hub place-goal <key> --at N`.
+5. **Tie project goals to hub goals:** for each project goal (`level: project`) not covered by a hub
+   goal, one question offering the hub goals it could count toward, plus **Stands alone**:
+   `reinstall-hub cover <hub goal key> <project goal key>`.
+6. **Check pace** (when asked, or weekly): read each ranked goal's `measure`, append a Pace line to its
+   record, and say in one line per goal whether it is on track.
 
 ---
 
@@ -142,11 +179,17 @@ Turn the inbox into a ranking, a few tasks at a time.
    cd <repo> && reinstall-brain done <id> --log "claude (for <owner>): finished (confirmed while prioritizing)"
    ```
    Offer to skip this step entirely with one question before starting it.
-3. **Order the candidates** by the signals in `brain/HUB.md`: project order, due dates, people
-   waiting on the owner, tasks that unblock others, age. Read a task's file when its title alone does
-   not say what it is, and write a one-line gist for its question.
-4. **Rounds.** One question per task, 4 tasks per call:
-   - Question: the task as a link, its project, and the gist.
+3. **Order the candidates** by the signals in `brain/HUB.md`: the rank of the goal a task serves
+   (`goal`, `hub_goal` in the inbox JSON), project order, due dates, people waiting on the owner, tasks
+   that unblock others, age. Read a task's file when its title alone does not say what it is, and
+   write a one-line gist for its question.
+4. **Goal first, for tasks that serve none** (`goal` is null), when the hub has goals. One question per
+   task, 4 per call: "Which goal is this for?" with the likeliest goals (recommendation first) and
+   **No goal: drop it**. Record the answer in the hub, never in the project brain:
+   `reinstall-hub cover <hub goal key> <task key>`. A task tied to no goal is the first candidate to
+   drop; dropping is a write to its brain (as in step 2). Offer to skip this step with one question.
+5. **Rounds.** One question per task, 4 tasks per call:
+   - Question: the task as a link, its project, its goal, and the gist.
    - Options: **Top** (do it before what is ranked now), **Next** (after the current top 10),
      **Later** (bottom of the ranking), **Not now** (leave it in the inbox). Put your recommendation
      first. For a stale task, offer **Drop it** in place of **Later**.
@@ -157,9 +200,9 @@ Turn the inbox into a ranking, a few tasks at a time.
        `--bottom` when the ranking is shorter than that).
      - Later: `--bottom`.
      - Not now: nothing; do not ask about it again this session.
-5. After every round, the one-line tally. Every third round, one question: **Keep going** or **Stop
+6. After every round, the one-line tally. Every third round, one question: **Keep going** or **Stop
    here** (stopping is fine: the inbox keeps the rest).
-6. **Finish.** Show the top 10 as links, numbered. Ask one question: **Looks right**, or **Move
+7. **Finish.** Show the top 10 as links, numbered, each with its goal. Ask one question: **Looks right**, or **Move
    something**. For a move, ask which task (options from the top 10) and where (top / up a few /
    down a few / bottom), then `place` it.
 
@@ -167,10 +210,11 @@ Turn the inbox into a ranking, a few tasks at a time.
 
 ## Today
 
-1. `reinstall-hub priorities --json`; also anything due within 7 days anywhere in the inbox.
+1. `reinstall-hub priorities --json` and `reinstall-hub goals --json`; also anything due within 7 days
+   anywhere in the inbox.
 2. Ask one question about capacity: **About 2 hours**, **Half a day**, **A full day**.
 3. Propose 3 to 6 tasks from the top of the ranking that fit, plus anything due today, each a link
-   with a few words on why. Ask **Go with this** or **Swap something** (then which).
+   with the goal it moves and a few words on why. Prefer moving the top goal over spreading thin. Ask **Go with this** or **Swap something** (then which).
 4. Write the plan as a note in the hub's own brain:
    ```bash
    reinstall-brain new note "Plan for YYYY-MM-DD" --author "claude (for <owner>)" --tag daily-plan --body-file - --json <<'EOF'
@@ -188,8 +232,9 @@ brain or an existing one, the name it has in this hub). Offer to commit the repo
 
 ## Status
 
-`reinstall-hub status --json` and `reinstall-hub list`. Say which brains are connected, their record
-counts, and any that are not readable on this machine (not cloned here, or moved). For a moved repo,
+`reinstall-hub status --json`, `reinstall-hub goals --json` and `reinstall-hub list`. Say which brains
+are connected, their record counts, and any that are not readable on this machine (not cloned here,
+or moved). Then each ranked goal in one line: its latest Pace line and how many open tasks serve it. For a moved repo,
 offer to fix its `path:` in `brain/brain.yaml`.
 
 ## Sync

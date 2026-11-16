@@ -10,6 +10,7 @@ export const CORE_TYPES: Record<string, string> = {
   insight: 'insights',
   task: 'tasks',
   milestone: 'milestones',
+  goal: 'goals',
 };
 
 export const STATUSES = ['active', 'blocked', 'done', 'dropped', 'superseded'] as const;
@@ -17,11 +18,11 @@ export const STATUSES = ['active', 'blocked', 'done', 'dropped', 'superseded'] a
 /** Frontmatter order. status, assignee and updated are kept apart so concurrent edits merge. */
 export const FIELD_ORDER = [
   'id', 'type', 'title', 'status', 'created', 'scope', 'tags', 'assignee', 'author', 'delegate',
-  'updated', 'parent', 'supersedes', 'superseded_by', 'blocked_by', 'due', 'completed', 'importance',
-  'docs', 'legacy_id', 'meta',
+  'updated', 'parent', 'serves', 'supersedes', 'superseded_by', 'blocked_by', 'due', 'completed', 'importance',
+  'done_when', 'measure', 'covers', 'docs', 'legacy_id', 'meta',
 ] as const;
 
-const LIST_FIELDS = new Set(['tags', 'blocked_by', 'docs']);
+const LIST_FIELDS = new Set(['tags', 'blocked_by', 'docs', 'covers']);
 const REQUIRED = ['id', 'type', 'title', 'status', 'created'];
 
 export type Fields = Record<string, unknown>;
@@ -171,6 +172,13 @@ export function lintFields(fields: Fields, fileName: string | undefined, knownTy
     const t = fields.tags as string[];
     if (JSON.stringify(t) !== JSON.stringify(normalizeTags(t))) problems.push('tags are not lowercase, sorted and unique');
   }
+  if (fields.covers !== undefined) {
+    for (const k of fields.covers as string[]) {
+      if (!/^[a-z0-9-]+\/[0-9a-z]{3,8}$/.test(String(k))) problems.push(`covers entry "${k}" is not a <brain>/<id> key`);
+    }
+    if (fields.type !== 'goal') warnings.push('covers is meant for goals (a hub goal covering project work)');
+  }
+  if (fields.type === 'goal' && fields.done_when === undefined) warnings.push('a goal should say when it is done (done_when)');
   const known = new Set<string>(FIELD_ORDER);
   for (const k of Object.keys(fields)) if (!known.has(k)) warnings.push(`unknown field "${k}" (move it under meta:)`);
   return { errors: problems, warnings };

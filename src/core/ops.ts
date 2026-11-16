@@ -205,3 +205,28 @@ export function defaultBrainName(root: string): string {
   return slugify(path.basename(path.resolve(root))) || 'brain';
 }
 
+export interface GoalRow extends RecordRow {
+  open_tasks: number;
+  done_tasks: number;
+}
+
+/** Goals with how many tasks serve each, and the open tasks that serve no goal. */
+export function goalsReport({ db }: Opened, opts: { all?: boolean } = {}): { goals: GoalRow[]; unserved: RecordRow[] } {
+  const goals = db
+    .prepare(`SELECT * FROM records WHERE type = 'goal' ${opts.all ? '' : "AND status IN ('active','blocked')"} ORDER BY created`)
+    .all()
+    .map((r) => {
+      const g = rowToRecord(r) as GoalRow;
+      const c = db
+        .prepare("SELECT sum(status IN ('active','blocked')) AS open, sum(status = 'done') AS done FROM records WHERE type = 'task' AND json_extract(fields, '$.serves') = ?")
+        .get(g.id) as Record<string, unknown>;
+      g.open_tasks = Number(c?.open ?? 0);
+      g.done_tasks = Number(c?.done ?? 0);
+      return g;
+    });
+  const unserved = db
+    .prepare("SELECT * FROM records WHERE type = 'task' AND status IN ('active','blocked') AND json_extract(fields, '$.serves') IS NULL ORDER BY created")
+    .all()
+    .map((r) => rowToRecord(r));
+  return { goals, unserved };
+}

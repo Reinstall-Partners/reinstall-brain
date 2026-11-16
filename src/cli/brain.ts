@@ -10,7 +10,7 @@ import { locateBrain, requireBrain } from '../core/brain.js';
 import { lintBrain, refresh } from '../core/indexer.js';
 import {
   openFresh, findRecord, listRecords, searchRecords, runSql, createRecord, updateRecord, supersede,
-  initBrain, defaultBrainName, type RecordRow,
+  initBrain, defaultBrainName, goalsReport, type RecordRow,
 } from '../core/ops.js';
 import { parseArgs } from './args.js';
 import { migrateBrain } from '../core/migrate.js';
@@ -24,9 +24,11 @@ Read
   search "<words>" [--limit N]       full-text search over titles, bodies and tags
   show <id>                          one record; also accepts a legacy id such as 512 or #512
   sql "<SELECT ...>"                 read-only SQL over the index (table: records)
+  goals [--all]                      goals, how many open tasks serve each, and tasks that serve none
 
 Write
   new <type> "<title>" [--body TEXT|--body-file F] [--tag X]... [--parent ID] [--scope P] [--author WHO] [--set field=value]...
+                                     a goal takes --set done_when=... --set measure=...; a task --set serves=<goal id>
   set <id> [field=value...] [--log "who: what"] [--body TEXT|--body-file F]
                                      change fields (meta.key=value for nested; "" removes), add a log line, or replace the body
   done <id> [--log "who: what happened"]
@@ -57,7 +59,7 @@ function parseAssignments(pairs: string[]): Record<string, unknown> {
     if (key === 'body') throw new Error('the body is not a field: use --body TEXT or --body-file F');
     const value =
       raw === '' ? undefined
-      : ['tags', 'blocked_by', 'docs'].includes(key) ? raw.split(',').map((x) => x.trim()).filter(Boolean)
+      : ['tags', 'blocked_by', 'docs', 'covers'].includes(key) ? raw.split(',').map((x) => x.trim()).filter(Boolean)
       : key === 'importance' && /^-?\d+$/.test(raw) ? Number(raw)
       : raw;
     const parts = key.split('.');
@@ -170,6 +172,19 @@ async function main(argv: string[]): Promise<number> {
           limit: a.value('limit') ? Number(a.value('limit')) : undefined,
         });
         out(rows, () => printRecords(rows));
+        return 0;
+      }
+      case 'goals': {
+        const r = goalsReport(opened, { all: a.flag('all') });
+        out(r, () => {
+          for (const g of r.goals) {
+            const f = g.fields;
+            console.log(`${g.id}  ${g.status === 'active' ? '' : `[${g.status}] `}${g.title}${f.due ? `  (due ${f.due})` : ''}`);
+            console.log(`      ${g.open_tasks} open task(s) serve it, ${g.done_tasks} done${f.measure ? `; measure: ${f.measure}` : ''}`);
+          }
+          if (!r.goals.length) console.log('(no goals yet: reinstall-brain new goal "<the outcome>" --set done_when="..." --set measure="...")');
+          console.log(`${r.unserved.length} open task(s) serve no goal`);
+        });
         return 0;
       }
       case 'search': {

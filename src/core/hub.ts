@@ -8,7 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { openDb, type Db } from './sqlite.js';
 import { type Brain, openBrain, locateBrain, expandHome } from './brain.js';
-import { openFresh, initBrain, defaultBrainName } from './ops.js';
+import { openFresh, initBrain, defaultBrainName, findRecord, updateRecord } from './ops.js';
 import { wire, type WireLine } from './wire.js';
 
 export const OPEN = ['active', 'blocked'];
@@ -25,6 +25,20 @@ export interface HubItem {
   assignee: string | null;
   tags: string[];
   file: string;
+  /** The goal this task serves: a project goal (by serves:) or else a hub goal that covers it. */
+  goal: string | null;
+  goal_title: string | null;
+  /** The hub goal this task rolls up to, directly or through its project goal. */
+  hub_goal: string | null;
+  hub_goal_title: string | null;
+}
+
+export interface GoalItem extends HubItem {
+  level: 'hub' | 'project';
+  measure: string | null;
+  done_when: string | null;
+  covers: string[];
+  open_tasks: number;
 }
 
 export interface Ranked extends HubItem {
@@ -288,9 +302,11 @@ export function syncHub(hub: Brain): SyncResult {
 // ---- the hub index ----
 
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS items (
+DROP TABLE IF EXISTS items;
+CREATE TABLE items (
   key TEXT PRIMARY KEY, brain TEXT NOT NULL, ord INTEGER NOT NULL, id TEXT NOT NULL, type TEXT, title TEXT,
-  status TEXT, created TEXT, due TEXT, assignee TEXT, tags TEXT, file TEXT
+  status TEXT, created TEXT, due TEXT, assignee TEXT, tags TEXT, file TEXT, serves TEXT, covers TEXT,
+  measure TEXT, done_when TEXT
 );
 CREATE TABLE IF NOT EXISTS brains (name TEXT PRIMARY KEY, ord INTEGER, root TEXT, records INTEGER, error TEXT);
 `;
@@ -312,7 +328,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM items; DELETE FROM brains;');
-    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT OR REPLACE INTO items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     const insB = db.prepare('INSERT OR REPLACE INTO brains VALUES (?,?,?,?,?)');
     const sources = [{ name: hub.config.name, path: hub.root }, ...hub.config.connects];
     for (const [ord, c] of sources.entries()) {
@@ -324,10 +340,10 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
         continue;
       }
       const opened = await openFresh(openBrain(root));
-      const rows = opened.db.prepare('SELECT id, type, title, status, created, due, assignee, tags, path FROM records').all();
+      const rows = opened.db.prepare("SELECT id, type, title, status, created, due, assignee, tags, path, json_extract(fields, '$.serves') AS serves, json_extract(fields, '$.covers') AS covers, json_extract(fields, '$.measure') AS measure, json_extract(fields, '$.done_when') AS done_when FROM records").all();
       opened.db.close();
       for (const r of rows) {
-        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)));
+        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)), r.serves ?? null, r.covers ?? null, r.measure ?? null, r.done_when ?? null);
       }
       result.brains.push({ name: c.name, root, records: rows.length });
       insB.run(c.name, ord, root, rows.length, null);
@@ -340,13 +356,118 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   return result;
 }
 
-function toItem(r: Record<string, unknown>): HubItem {
-  return {
+function toItem(r: Record<string, unknown>, goals?: GoalMap): HubItem {
+  const item: HubItem = {
     key: String(r.key), brain: String(r.brain), id: String(r.id), type: String(r.type), title: String(r.title),
     status: String(r.status), created: String(r.created), due: (r.due as string) ?? null, assignee: (r.assignee as string) ?? null,
-    tags: JSON.parse(String(r.tags ?? '[]')), file: String(r.file),
+    tags: JSON.parse(String(r.tags ?? '[]')), file: String(r.file), goal: null, goal_title: null, hub_goal: null, hub_goal_title: null,
+  };
+  if (goals) {
+    const g = goals.resolve(item.key, item.brain, (r.serves as string) ?? null);
+    Object.assign(item, g);
+  }
+  return item;
+}
+
+// ---- goals (D21-D23): a task serves one goal in its own brain; a hub goal covers project work by key ----
+
+interface GoalMap {
+  resolve(key: string, brain: string, serves: string | null): Pick<HubItem, 'goal' | 'goal_title' | 'hub_goal' | 'hub_goal_title'>;
+}
+
+function goalMap(hub: Brain, db: Db): GoalMap {
+  const titles = new Map<string, string>();
+  for (const g of db.prepare("SELECT key, title FROM items WHERE type = 'goal'").all()) titles.set(String(g.key), String(g.title));
+  const coveredBy = new Map<string, string>();
+  for (const g of db.prepare("SELECT key, covers FROM items WHERE type = 'goal' AND brain = ? AND status IN ('active','blocked') ORDER BY created").all(hub.config.name)) {
+    for (const k of JSON.parse(String(g.covers ?? '[]')) as string[]) if (!coveredBy.has(k)) coveredBy.set(k, String(g.key));
+  }
+  return {
+    resolve(key, brain, serves) {
+      const projectGoal = serves ? `${brain}/${serves}` : null;
+      let hubGoal = coveredBy.get(key) ?? (projectGoal ? coveredBy.get(projectGoal) : undefined) ?? null;
+      if (!hubGoal && projectGoal && brain === hub.config.name) hubGoal = projectGoal; // a task in the hub serving a hub goal
+      const goal = projectGoal ?? hubGoal;
+      return {
+        goal,
+        goal_title: goal ? titles.get(goal) ?? null : null,
+        hub_goal: hubGoal,
+        hub_goal_title: hubGoal ? titles.get(hubGoal) ?? null : null,
+      };
+    },
   };
 }
+
+/** Every open goal (the hub's own and each connected brain's), ranked ones first, with how many open tasks serve each. */
+export function goals(hub: Brain, db: Db, opts: { prune?: boolean } = {}): { ranked: (GoalItem & { rank: number })[]; unranked: GoalItem[]; dropped: string[] } {
+  const gm = goalMap(hub, db);
+  const tasks = db.prepare("SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked')").all().map((r) => toItem(r, gm));
+  const toGoal = (r: Record<string, unknown>): GoalItem => {
+    const base = toItem(r);
+    const key = base.key;
+    return {
+      ...base,
+      level: base.brain === hub.config.name ? 'hub' : 'project',
+      measure: (r.measure as string) ?? null,
+      done_when: (r.done_when as string) ?? null,
+      covers: JSON.parse(String(r.covers ?? '[]')),
+      open_tasks: tasks.filter((t) => t.goal === key || t.hub_goal === key).length,
+    };
+  };
+  const all = db.prepare("SELECT * FROM items WHERE type = 'goal' ORDER BY ord, created").all();
+  const byKey = new Map(all.map((r) => [String(r.key), r]));
+  const file = readPrioritiesFile(hub);
+  const ranked: (GoalItem & { rank: number })[] = [];
+  const dropped: string[] = [];
+  for (const k of file.goals) {
+    const r = byKey.get(k);
+    if (!r || !OPEN.includes(String(r.status))) dropped.push(k);
+    else ranked.push({ ...toGoal(r), rank: ranked.length + 1 });
+  }
+  if (opts.prune && dropped.length) writePrioritiesFile(hub, { goals: file.goals.filter((k) => !dropped.includes(k)), tasks: file.tasks }, titleMap(db, [...file.goals, ...file.tasks]));
+  const rankedKeys = new Set(file.goals);
+  const unranked = all.filter((r) => OPEN.includes(String(r.status)) && !rankedKeys.has(String(r.key))).map(toGoal);
+  return { ranked, unranked, dropped };
+}
+
+/** Put a goal at a position in the Goals section of priorities.md. */
+export function placeGoal(hub: Brain, db: Db, key: string, pos: Position): number {
+  const item = db.prepare('SELECT * FROM items WHERE key = ?').get(key);
+  if (!item) throw new Error(`no item "${key}" in the hub index (use <brain>/<id>)`);
+  if (item.type !== 'goal') throw new Error(`${key} is a ${item.type}, not a goal: use reinstall-hub place for tasks`);
+  const file = readPrioritiesFile(hub);
+  const keys = file.goals.filter((k) => k !== key);
+  const i = positionIndex(keys, pos);
+  keys.splice(i, 0, key);
+  writePrioritiesFile(hub, { goals: keys, tasks: file.tasks }, titleMap(db, [...keys, ...file.tasks]));
+  return i + 1;
+}
+
+export function unrankGoal(hub: Brain, db: Db, key: string): boolean {
+  const file = readPrioritiesFile(hub);
+  if (!file.goals.includes(key)) return false;
+  const keep = file.goals.filter((k) => k !== key);
+  writePrioritiesFile(hub, { goals: keep, tasks: file.tasks }, titleMap(db, [...keep, ...file.tasks]));
+  return true;
+}
+
+/** Link a hub goal to project work (a project goal or a task) by key. The project's brain is not touched. */
+export async function cover(hub: Brain, db: Db, goalKey: string, target: string, remove = false): Promise<string[]> {
+  const g = db.prepare('SELECT * FROM items WHERE key = ?').get(goalKey);
+  if (!g || g.type !== 'goal' || g.brain !== hub.config.name) throw new Error(`${goalKey} is not a goal in this hub's own brain (hub goals live in the hub; see reinstall-hub goals)`);
+  if (!remove && !db.prepare('SELECT 1 FROM items WHERE key = ?').get(target)) throw new Error(`no item "${target}" in the hub index (use <brain>/<id>)`);
+  const opened = await openFresh(hub);
+  try {
+    const rec = findRecord(opened, String(g.id));
+    const cur = ((rec?.fields.covers as string[] | undefined) ?? []).filter((k) => k !== target);
+    const next = remove ? cur : [...cur, target];
+    updateRecord(opened, String(g.id), { covers: next.length ? next : undefined });
+    return next;
+  } finally {
+    opened.db.close();
+  }
+}
+
 
 // ---- priorities.md ----
 
@@ -355,30 +476,71 @@ export function prioritiesPath(hub: Brain): string {
 }
 
 const LINE = /^\s*(?:\d+[.)]|[-*])\s+([a-z0-9-]+\/[^\s]+)/;
+const HEADER = '# Priorities\n\nLine order is the rank: no two items are equal. Edit by moving lines, or with `reinstall-hub place` (tasks) and `reinstall-hub place-goal` (goals).\n';
+
+/** priorities.md holds an optional `## Goals` section (ranked goals) and the ranked tasks (under `## Tasks`, or anywhere else). */
+export function readPrioritiesFile(hub: Brain): { goals: string[]; tasks: string[] } {
+  const file = prioritiesPath(hub);
+  const out = { goals: [] as string[], tasks: [] as string[] };
+  if (!existsSync(file)) return out;
+  let section: 'goals' | 'tasks' = 'tasks';
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const h = /^##\s+(.+?)\s*$/.exec(line);
+    if (h) {
+      section = /^goals$/i.test(h[1]) ? 'goals' : 'tasks';
+      continue;
+    }
+    const m = LINE.exec(line);
+    if (m && !out[section].includes(m[1])) out[section].push(m[1]);
+  }
+  return out;
+}
+
+export function writePrioritiesFile(hub: Brain, lists: { goals: string[]; tasks: string[] }, titles: Map<string, string>): void {
+  const fmt = (keys: string[]) => keys.map((k, i) => `${i + 1}. ${k}  ${titles.get(k) ?? ''}`.trimEnd()).join('\n');
+  let text = HEADER;
+  if (lists.goals.length) text += `\n## Goals\n\n${fmt(lists.goals)}\n\n## Tasks\n`;
+  text += lists.tasks.length ? `\n${fmt(lists.tasks)}\n` : '';
+  writeFileSync(prioritiesPath(hub), text);
+}
 
 export function readPriorities(hub: Brain): string[] {
-  const file = prioritiesPath(hub);
-  if (!existsSync(file)) return [];
-  const keys: string[] = [];
-  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-    const m = LINE.exec(line);
-    if (m && !keys.includes(m[1])) keys.push(m[1]);
-  }
-  return keys;
+  return readPrioritiesFile(hub).tasks;
 }
 
 export function writePriorities(hub: Brain, keys: string[], titles: Map<string, string>): void {
-  const lines = keys.map((k, i) => `${i + 1}. ${k}  ${titles.get(k) ?? ''}`.trimEnd());
-  writeFileSync(
-    prioritiesPath(hub),
-    `# Priorities\n\nLine order is the rank: no two items are equal. Edit by moving lines, or with \`reinstall-hub place\`.\n\n${lines.join('\n')}${lines.length ? '\n' : ''}`,
-  );
+  const goalsNow = readPrioritiesFile(hub).goals;
+  const all = new Map(titles);
+  for (const [k, v] of goalTitlesFromFile(hub)) if (!all.has(k)) all.set(k, v);
+  writePrioritiesFile(hub, { goals: goalsNow, tasks: keys }, all);
+}
+
+function goalTitlesFromFile(hub: Brain): Map<string, string> {
+  const out = new Map<string, string>();
+  const file = prioritiesPath(hub);
+  if (!existsSync(file)) return out;
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const m = /^\s*\d+[.)]\s+([a-z0-9-]+\/\S+)\s+(.*)$/.exec(line);
+    if (m) out.set(m[1], m[2]);
+  }
+  return out;
+}
+
+function positionIndex(keys: string[], pos: Position): number {
+  if ('top' in pos) return 0;
+  if ('bottom' in pos) return keys.length;
+  if ('at' in pos) return Math.max(0, Math.min(keys.length, pos.at - 1));
+  const ref = 'above' in pos ? pos.above : pos.below;
+  const j = keys.indexOf(ref);
+  if (j < 0) throw new Error(`${ref} is not ranked`);
+  return 'above' in pos ? j : j + 1;
 }
 
 /** The ranked list, with items no longer open dropped from the file. */
 export function priorities(hub: Brain, db: Db, opts: { prune?: boolean } = {}): { ranked: Ranked[]; dropped: string[]; unknown: string[] } {
   const keys = readPriorities(hub);
   const get = db.prepare('SELECT * FROM items WHERE key = ?');
+  const gm = goalMap(hub, db);
   const ranked: Ranked[] = [];
   const dropped: string[] = [];
   const unknown: string[] = [];
@@ -386,7 +548,7 @@ export function priorities(hub: Brain, db: Db, opts: { prune?: boolean } = {}): 
     const r = get.get(k);
     if (!r) unknown.push(k);
     else if (!OPEN.includes(String(r.status))) dropped.push(k);
-    else ranked.push({ ...toItem(r), rank: ranked.length + 1 });
+    else ranked.push({ ...toItem(r, gm), rank: ranked.length + 1 });
   }
   if (opts.prune && dropped.length) {
     const keep = keys.filter((k) => !dropped.includes(k));
@@ -408,7 +570,8 @@ export function inbox(hub: Brain, db: Db, opts: { brain?: string; limit?: number
       `SELECT * FROM items WHERE type = 'task' AND status IN ('active','blocked') ${opts.brain ? 'AND brain = ?' : ''} ORDER BY ord, created`,
     )
     .all(...(opts.brain ? [opts.brain] : []));
-  const out = rows.map(toItem).filter((i) => !ranked.has(i.key));
+  const gm = goalMap(hub, db);
+  const out = rows.map((r) => toItem(r, gm)).filter((i) => !ranked.has(i.key));
   return opts.limit ? out.slice(0, opts.limit) : out;
 }
 
@@ -420,16 +583,7 @@ export function place(hub: Brain, db: Db, key: string, pos: Position): number {
   if (!item) throw new Error(`no item "${key}" in the hub index (run reinstall-hub index, and use <brain>/<id>)`);
   if (item.type !== 'task') throw new Error(`${key} is a ${item.type}; only tasks are ranked`);
   const keys = readPriorities(hub).filter((k) => k !== key);
-  let i: number;
-  if ('top' in pos) i = 0;
-  else if ('bottom' in pos) i = keys.length;
-  else if ('at' in pos) i = Math.max(0, Math.min(keys.length, pos.at - 1));
-  else {
-    const ref = 'above' in pos ? pos.above : pos.below;
-    const j = keys.indexOf(ref);
-    if (j < 0) throw new Error(`${ref} is not ranked`);
-    i = 'above' in pos ? j : j + 1;
-  }
+  const i = positionIndex(keys, pos);
   keys.splice(i, 0, key);
   writePriorities(hub, keys, titleMap(db, keys));
   return i + 1;

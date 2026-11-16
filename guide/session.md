@@ -19,6 +19,10 @@ All project knowledge lives in `brain/`: one markdown file per record, committed
   stay right in commands, records, plans and commit messages.
 - **Decisions are permanent.** A changed decision is a new record, linked with `reinstall-brain
   supersede <old> <new>`. Never delete a record: set `status: dropped`.
+- **Goals.** A `goal` record is an outcome the work is for (`done_when`, `measure`, a `## Pace` log).
+  A task names the one goal it serves with `serves: <goal id>`. When you add a task, ask which goal it
+  serves; `reinstall-brain goals` shows each goal with the open tasks serving it, and the tasks
+  serving none.
 - **No rankings in a brain.** Priority lives in a hub's `priorities.md`, never in a record.
 - **Long documents** (plans, research, specs) live in their own files; a record points at one with
   `--set docs=<path relative to brain/>`.

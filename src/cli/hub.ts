@@ -3,7 +3,7 @@ import { VERSION } from '../core/version.js';
 import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
-  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry,
+  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
 import { expandHome, locateBrain, openBrain } from '../core/brain.js';
@@ -28,8 +28,12 @@ Set up
 
 Work
   index                            refresh every connected brain and the hub's combined index
+  goals                            ranked goals, then unranked open goals, with open tasks serving each
+  place-goal <brain/id> --top|--bottom|--at N|--above KEY|--below KEY
+  unrank-goal <brain/id>
+  cover <hub goal key> <brain/id>  a hub goal covers a project goal or task (uncover to remove)
   priorities [--all]               your ranked tasks (finished ones drop off the file)
-  inbox [--brain NAME] [--limit N] open tasks not ranked yet, in project order
+  inbox [--brain NAME] [--unserved] [--limit N]   open tasks not ranked yet (--unserved: serving no goal)
   place <brain/id> --top|--bottom|--at N|--above KEY|--below KEY
   unrank <brain/id>
   seed                             append tasks ranked in migrated brains (legacy focus/priority)
@@ -127,7 +131,7 @@ async function main(argv: string[]): Promise<number> {
       case 'priorities': {
         const r = priorities(hub, db, { prune: true });
         out(r, () => {
-          for (const i of r.ranked) console.log(`${String(i.rank).padStart(3)}. ${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.due ? `  (due ${i.due})` : ''}`);
+          for (const i of r.ranked) console.log(`${String(i.rank).padStart(3)}. ${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.due ? `  (due ${i.due})` : ''}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
           if (!r.ranked.length) console.log('(nothing ranked yet: see reinstall-hub inbox, then place)');
           if (r.dropped.length) console.log(`\ndropped ${r.dropped.length} finished task(s) from priorities.md`);
           for (const u of r.unknown) console.log(`warning: ${u} is in priorities.md but not in any connected brain`);
@@ -135,9 +139,11 @@ async function main(argv: string[]): Promise<number> {
         return 0;
       }
       case 'inbox': {
-        const items = inbox(hub, db, { brain: a.value('brain'), limit: a.value('limit') ? Number(a.value('limit')) : undefined });
+        let items = inbox(hub, db, { brain: a.value('brain') });
+        if (a.flag('unserved')) items = items.filter((i) => !i.goal);
+        if (a.value('limit')) items = items.slice(0, Number(a.value('limit')));
         out(items, () => {
-          for (const i of items) console.log(`${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}`);
+          for (const i of items) console.log(`${i.key.padEnd(30)} ${i.status === 'blocked' ? '[blocked] ' : ''}${i.title}${i.goal_title ? `  -> ${i.goal_title}` : ''}`);
           console.log(`${items.length} unranked open task(s)`);
         });
         return 0;
@@ -152,6 +158,41 @@ async function main(argv: string[]): Promise<number> {
           : { bottom: true };
         const rank = place(hub, db, key, p);
         out({ key, rank }, () => console.log(`${key} is #${rank}`));
+        return 0;
+      }
+      case 'goals': {
+        const r = goals(hub, db, { prune: true });
+        out(r, () => {
+          const show = (g: any, lead: string) => console.log(`${lead} ${g.key.padEnd(30)} ${g.title}${g.due ? `  (due ${g.due})` : ''}  [${g.level}, ${g.open_tasks} open task(s)]`);
+          for (const g of r.ranked) show(g, `${String(g.rank).padStart(3)}.`);
+          if (r.unranked.length) console.log(r.ranked.length ? '\nnot ranked yet:' : 'not ranked yet:');
+          for (const g of r.unranked) show(g, '    ');
+          if (!r.ranked.length && !r.unranked.length) console.log('(no goals yet: reinstall-brain new goal "<the outcome>" in the hub or a project)');
+        });
+        return 0;
+      }
+      case 'place-goal': {
+        const key = pos[0];
+        if (!key) throw new Error('usage: reinstall-hub place-goal <brain/id> --top|--bottom|--at N|--above KEY|--below KEY');
+        const p: Position = a.flag('top') ? { top: true }
+          : a.value('at') ? { at: Number(a.value('at')) }
+          : a.value('above') ? { above: a.value('above')! }
+          : a.value('below') ? { below: a.value('below')! }
+          : { bottom: true };
+        const rank = placeGoal(hub, db, key, p);
+        out({ key, rank }, () => console.log(`${key} is goal #${rank}`));
+        return 0;
+      }
+      case 'unrank-goal': {
+        const ok = unrankGoal(hub, db, pos[0] ?? '');
+        out({ removed: ok }, () => console.log(ok ? `removed ${pos[0]}` : `${pos[0]} was not ranked`));
+        return 0;
+      }
+      case 'cover':
+      case 'uncover': {
+        if (pos.length < 2) throw new Error(`usage: reinstall-hub ${cmd} <hub goal key> <brain/id>`);
+        const next = await cover(hub, db, pos[0], pos[1], cmd === 'uncover');
+        out({ goal: pos[0], covers: next }, () => console.log(`${pos[0]} covers ${next.length ? next.join(', ') : 'nothing'}`));
         return 0;
       }
       case 'unrank': {

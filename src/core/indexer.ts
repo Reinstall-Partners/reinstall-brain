@@ -225,6 +225,7 @@ export function lintBrain(brain: Brain, db: Db): LintIssue[] {
   }
   const rows = db.prepare('SELECT path, fields, type FROM records').all().filter((r) => !brain.looseTypes.has(String(r.type)));
   const ids = new Set<string>();
+  const typeOf = new Map<string, string>();
   for (const r of rows) {
     const fields = JSON.parse(String(r.fields)) as Fields;
     const p = String(r.path);
@@ -232,7 +233,10 @@ export function lintBrain(brain: Brain, db: Db): LintIssue[] {
     const { errors, warnings } = lintFields(fields, named ? path.posix.basename(p) : undefined, types);
     for (const m of errors) issues.push({ path: p, level: 'error', message: m });
     for (const m of warnings) issues.push({ path: p, level: 'warning', message: m });
-    if (fields.id !== undefined) ids.add(String(fields.id));
+    if (fields.id !== undefined) {
+      ids.add(String(fields.id));
+      typeOf.set(String(fields.id), String(fields.type));
+    }
   }
   for (const d of db.prepare('SELECT id, group_concat(path, \', \') AS paths, count(*) AS n FROM records GROUP BY id HAVING n > 1').all()) {
     issues.push({ path: String(d.paths), level: 'error', message: `id "${d.id}" is used by ${d.n} records` });
@@ -243,6 +247,11 @@ export function lintBrain(brain: Brain, db: Db): LintIssue[] {
       if (fields[f] !== undefined && !ids.has(String(fields[f]))) {
         issues.push({ path: String(r.path), level: 'warning', message: `${f} "${fields[f]}" does not match any record` });
       }
+    }
+    if (fields.serves !== undefined) {
+      const t = typeOf.get(String(fields.serves));
+      if (!t) issues.push({ path: String(r.path), level: 'warning', message: `serves "${fields.serves}" does not match any record` });
+      else if (t !== 'goal') issues.push({ path: String(r.path), level: 'warning', message: `serves "${fields.serves}" is a ${t}, not a goal` });
     }
     for (const b of (fields.blocked_by as string[] | undefined) ?? []) {
       if (!ids.has(String(b))) issues.push({ path: String(r.path), level: 'warning', message: `blocked_by "${b}" does not match any record` });

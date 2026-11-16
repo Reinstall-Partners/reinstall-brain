@@ -162,3 +162,64 @@ describe('hubs', () => {
     for (const s of ['brain', 'hub']) expect(existsSync(path.join(packageRoot(), 'skills', s, 'SKILL.md'))).toBe(true);
   });
 });
+
+describe('goals', () => {
+  it('ties tasks to project goals and hub goals, ranks goals, and finds unserved tasks', async () => {
+    const { goalsReport } = await import('../src/core/ops.js');
+    const { goals, placeGoal, cover, place, priorities, readPrioritiesFile } = await import('../src/core/hub.js');
+    const hubDir = path.join(base, 'goal-hub');
+    let hub = initHub(hubDir).hub;
+    const a = repo('alpha');
+    initBrain(a, 'alpha');
+    let o = await openFresh(openBrain(a));
+    const pg = createRecord(o, { type: 'goal', title: 'Importer live', extra: { done_when: 'three customers import', measure: 'count imports' } });
+    const t1 = createRecord(o, { type: 'task', title: 'Build importer', extra: { serves: pg.id } });
+    const t2 = createRecord(o, { type: 'task', title: 'Loose end' });
+    expect(goalsReport(o).goals[0].open_tasks).toBe(1);
+    expect(goalsReport(o).unserved.map((t) => t.title)).toEqual(['Loose end']);
+    o.db.close();
+    connectRepo(hub, a);
+    hub = openBrain(hub.root);
+    o = await openFresh(hub);
+    const hg = createRecord(o, { type: 'goal', title: 'First paying client', extra: { done_when: 'invoice paid' } });
+    o.db.close();
+
+    let db = await openHubDb(hub);
+    await indexHub(hub, db);
+    await cover(hub, db, `goal-hub/${hg.id}`, `alpha/${pg.id}`);
+    await indexHub(hub, db);
+    const items = inbox(hub, db);
+    const built = items.find((i) => i.title === 'Build importer')!;
+    expect(built.goal).toBe(`alpha/${pg.id}`);
+    expect(built.hub_goal).toBe(`goal-hub/${hg.id}`);
+    expect(built.hub_goal_title).toBe('First paying client');
+    expect(items.find((i) => i.title === 'Loose end')!.goal).toBeNull();
+
+    placeGoal(hub, db, `goal-hub/${hg.id}`, { top: true });
+    place(hub, db, `alpha/${t1.id}`, { top: true });
+    const file = readPrioritiesFile(hub);
+    expect(file.goals).toEqual([`goal-hub/${hg.id}`]);
+    expect(file.tasks).toEqual([`alpha/${t1.id}`]);
+    const g = goals(hub, db);
+    expect(g.ranked[0].open_tasks).toBe(1); // the hub goal, through its project goal
+    expect(g.unranked.map((x) => x.title)).toEqual(['Importer live']);
+    expect(priorities(hub, db).ranked[0].goal_title).toBe('Importer live');
+    db.close();
+    void t2;
+  });
+
+  it('lints serves and covers', async () => {
+    const { lintBrain } = await import('../src/core/indexer.js');
+    const r = repo('lint-goals');
+    initBrain(r, 'lint-goals');
+    const o = await openFresh(openBrain(r));
+    const note = createRecord(o, { type: 'note', title: 'Not a goal' });
+    createRecord(o, { type: 'task', title: 'Bad serves', extra: { serves: note.id } });
+    createRecord(o, { type: 'goal', title: 'Bad covers', extra: { covers: ['not a key'] } });
+    const issues = lintBrain(o.brain, o.db).map((i) => i.message);
+    o.db.close();
+    expect(issues.some((m) => /serves ".*" is a note, not a goal/.test(m))).toBe(true);
+    expect(issues.some((m) => /covers entry "not a key"/.test(m))).toBe(true);
+    expect(issues.some((m) => /done_when/.test(m))).toBe(true);
+  });
+});

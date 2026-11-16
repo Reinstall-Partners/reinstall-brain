@@ -33,7 +33,7 @@ prints its path. Then edit the body.
    Delete any field you leave empty. Write the body.
 
 Types and their folders: `note` → `notes/`, `decision` → `decisions/`, `question` → `questions/`,
-`insight` → `insights/`, `task` → `tasks/`, `milestone` → `milestones/`. Extra types are listed
+`insight` → `insights/`, `task` → `tasks/`, `milestone` → `milestones/`, `goal` → `goals/`. Extra types are listed
 under `types:` in `brain.yaml`.
 
 ## Fields you will use most
@@ -45,6 +45,11 @@ under `types:` in `brain.yaml`.
 - `author`: who wrote the record. An agent writes `<agent> (for <person>)`, for example
   `claude (for sam)`. Log lines use the same form for `who`.
 - `parent`: the record this one came out of, for example the task a decision was made for.
+- **Goals.** A `goal` is an outcome the work is for: its `title` is the outcome, `done_when` says
+  when it is reached, `measure` says how to read progress, and `due` is optional. Its body keeps a
+  `## Pace` log of dated readings. It is `done` when reached, `dropped` when abandoned. A task says
+  which goal it is for with `serves: <goal id>` (one goal). A hub's goals use `covers:` to list the
+  project goals and tasks they count, as `<brain>/<id>` keys.
 - `scope`: in a monorepo, the sub-project the record belongs to (`apps/web`). Leave it out otherwise.
 - `tags`: a few lowercase words for finding things later. Records don't inherit tags from their parent.
 
