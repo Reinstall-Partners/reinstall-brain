@@ -27,8 +27,6 @@ node ~/reinstall-brain/setup.mjs --hub ~/my-hub     # --hub is optional
 `~/.reinstall-brain` at the clone. Every folder you wire links its skills through that pointer, so
 `reinstall-brain update` (a pull and a rebuild) updates all of them at once.
 
-Only want the CLI? `npm install -g github:Reinstall-Partners/reinstall-brain`.
-
 ## Use it through your agent
 
 Brain and Hub ship their own skills and agent guidance, and wire them into the folders that use them:

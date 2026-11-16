@@ -125,7 +125,7 @@ async function main(argv: string[]): Promise<number> {
       const run = (cmdName: string, args: string[]) => execFileSync(cmdName, args, { cwd: pkg, stdio: 'inherit', shell: process.platform === 'win32' });
       if (!existsSync(path.join(pkg, '.git'))) throw new Error(`${pkg} is not a git clone; update it the way you installed it`);
       run('git', ['pull', '--ff-only']);
-      run('npm', ['install', '--no-audit', '--no-fund']);
+      run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund']);
       run('npm', ['run', 'build']);
       run(process.execPath, [path.join(pkg, 'dist', 'cli', 'hub.js'), 'sync', '--all']);
       return 0;

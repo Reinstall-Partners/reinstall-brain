@@ -56,7 +56,10 @@ say(`[ok] Node ${process.versions.node}`);
 
 // 2. Build.
 say('[build] installing dependencies and building the CLI');
-run('npm', ['install', '--no-audit', '--no-fund']);
+// Scripts are skipped on install and the build is run by name: newer npm versions hold back
+// lifecycle scripts (prepare) until they are approved.
+run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund']);
+run('npm', ['run', 'build']);
 
 // 3. Pointer.
 let st = null;
@@ -91,7 +94,7 @@ if (!st) {
 }
 
 // 4. PATH.
-run('npm', ['link', '--no-audit', '--no-fund']);
+run('npm', ['link', '--ignore-scripts', '--no-audit', '--no-fund']);
 let onPath = false;
 try {
   execFileSync(IS_WIN ? 'where' : 'which', ['reinstall-brain'], { stdio: 'ignore' });

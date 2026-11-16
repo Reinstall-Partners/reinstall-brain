@@ -110,6 +110,8 @@ describe('hubs', () => {
     const db = await openHubDb(hub);
     await indexHub(hub, db);
     expect(inbox(hub, db).map((i) => i.title)).toContain('Alpha task');
+    // A hub item's file is the record's real path, so agents can link to it.
+    for (const i of inbox(hub, db)) expect(existsSync(i.file)).toBe(true);
     db.close();
 
     expect(disconnectRepo(hub, 'beta')).toBe(true);

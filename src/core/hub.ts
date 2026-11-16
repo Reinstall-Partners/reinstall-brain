@@ -327,7 +327,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
       const rows = opened.db.prepare('SELECT id, type, title, status, created, due, assignee, tags, path FROM records').all();
       opened.db.close();
       for (const r of rows) {
-        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, String(r.path)));
+        ins.run(`${c.name}/${r.id}`, c.name, ord, String(r.id), r.type, r.title, r.status, r.created, r.due ?? null, r.assignee ?? null, r.tags ?? '[]', path.join(root, 'brain', String(r.path)));
       }
       result.brains.push({ name: c.name, root, records: rows.length });
       insB.run(c.name, ord, root, rows.length, null);
