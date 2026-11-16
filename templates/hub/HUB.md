@@ -39,7 +39,28 @@ Goals are the outcomes the work is for, and the strongest signal for ranking.
   task). Links run one way: a project brain never names a hub.
 - `priorities.md` ranks goals under a `## Goals` heading, above the pinned tasks under `## Tasks`.
 - Every task in the hub resolves to a **goal** (its project goal, or a hub goal covering it) and a
-  **hub goal** (where it rolls up). A task with neither serves no goal: ask whether it should exist.
+  **hub goal** (where it rolls up). A task with neither serves no goal: ask whether it should exist,
+  in projects that have goals.
+- A goal with `ranking: off` is one the owner keeps out of the hub's ranking on purpose (a personal
+  goal): it is not listed as waiting to be ranked.
+
+## Tasks a tool manages
+
+A task with `managed_by: <tool>` is created, re-dated and closed by that tool (a finance check-in,
+say). The hub orders it like any other task, and the owner may pin it, but never offer to drop or
+finish it from the hub: say which tool owns it instead.
+
+## A kit for every project
+
+A hub may name a toolkit its projects use, in its `brain/brain.yaml`:
+
+```yaml
+kit:
+  install: node ~/path/to/kit/install.mjs   # run inside a project
+  marker: .claude/kit-installed.json         # exists once it is installed
+```
+
+`reinstall-hub connect` then reports a repo that lacks it, with the command to install it.
 
 ## With the CLI (preferred)
 

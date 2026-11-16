@@ -153,3 +153,39 @@ describe('plans as one item', () => {
     db.close();
   });
 });
+
+describe('phase 6: managed tasks, goals kept out of ranking, kit offer, kept sections', async () => {
+  const { goals, connectRepo, readPrioritiesFile } = await import('../src/core/hub.js');
+  it('carries managed_by, keeps ranking:off goals out of the waiting list, offers the kit, and keeps unknown sections', async () => {
+    const base = mkdtempSync(path.join(os.tmpdir(), 'rb-p6-'));
+    const acme = repo('acme', base);
+    const fresh = repo('fresh', base);
+    const hubRoot = repo('the-hub', base);
+    writeFileSync(path.join(hubRoot, 'brain', 'brain.yaml'), `format: 1\nname: the-hub\nhub: true\nkit:\n  install: node ~/kit/install.mjs\n  marker: .claude/kit-installed.json\nconnects:\n  - name: acme\n    path: ${acme}\n`);
+    let o = await openFresh(openBrain(acme));
+    const t = createRecord(o, { type: 'task', title: 'Feed is stale', extra: { managed_by: 'finance' } });
+    createRecord(o, { type: 'goal', title: 'Personal goal', extra: { done_when: 'x', ranking: 'off' } });
+    createRecord(o, { type: 'goal', title: 'Project goal', extra: { done_when: 'y' } });
+    o.db.close();
+    const hub = locateHub(hubRoot);
+    const db = await openHubDb(hub);
+    await indexHub(hub, db);
+    expect(priorities(hub, db).ranked.find((i) => i.key === `acme/${t.id}`)!.managed_by).toBe('finance');
+    const g = goals(hub, db);
+    expect(g.unranked.map((x) => x.title)).toEqual(['Project goal']);
+    expect(g.not_ranked.map((x) => x.title)).toEqual(['Personal goal']);
+
+    expect(connectRepo(hub, fresh).kit).toEqual({ install: 'node ~/kit/install.mjs' });
+    mkdirSync(path.join(acme, '.claude'), { recursive: true });
+    writeFileSync(path.join(acme, '.claude', 'kit-installed.json'), '{}');
+    expect(connectRepo(hub, acme).kit).toBeNull();
+
+    const file = path.join(hubRoot, 'brain', 'priorities.md');
+    writeFileSync(file, `# Priorities\n\n## Notes\n\nKeep this paragraph.\n- acme/zzzz is mentioned here, not pinned\n`);
+    place(hub, db, `acme/${t.id}`, { top: true });
+    const after = readFileSync(file, 'utf8');
+    expect(after).toContain('## Notes\n\nKeep this paragraph.');
+    expect(readPrioritiesFile(hub).tasks).toEqual([`acme/${t.id}`]);
+    db.close();
+  });
+});

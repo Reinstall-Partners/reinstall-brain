@@ -110,6 +110,7 @@ async function main(argv: string[]): Promise<number> {
       console.log(`${r.already ? 'already connected' : 'connected'}: ${r.name} (${r.root})${r.createdBrain ? ', with a new brain' : ''}`);
       const w = formatWire(r.wired);
       if (w) console.log(w);
+      if (r.kit) console.log(`[kit] this hub's kit is not installed there yet. To install it: cd ${r.root} && ${r.kit.install}`);
     });
     return 0;
   }
@@ -217,6 +218,7 @@ async function main(argv: string[]): Promise<number> {
           for (const g of r.ranked) show(g, `${String(g.rank).padStart(3)}.`);
           if (r.unranked.length) console.log(r.ranked.length ? '\nnot ranked yet:' : 'not ranked yet:');
           for (const g of r.unranked) show(g, '    ');
+          if (r.not_ranked.length) console.log(`\nkept out of the ranking (ranking: off): ${r.not_ranked.map((g: any) => g.title).join('; ')}`);
           if (!r.ranked.length && !r.unranked.length) console.log('(no goals yet: reinstall-brain new goal "<the outcome>" in the hub or a project)');
         });
         return 0;

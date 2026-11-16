@@ -124,7 +124,8 @@ confirmed), **Prioritize** (recommended when old tasks pile up), **Plan today**,
    ```bash
    reinstall-hub connect <repo>
    ```
-   A repo without a brain gets one (empty, ready to use) and its own `/brain` wiring.
+   A repo without a brain gets one (empty, ready to use) and its own `/brain` wiring. A `[kit]` line
+   means the hub's kit (`kit:` in its brain.yaml) is not installed there: offer to run its command.
 6. **Project order.** The order of `connects:` is the project ranking, and it orders every task.
    Propose an order (most recent activity first, or the order the owner named projects in) and ask
    one question: **Use this order**, or **Change it** (then ask which project goes first, and so on,
@@ -191,7 +192,8 @@ project order and clearing dead work, with a pin only for the few tasks that mus
    cd <repo> && reinstall-brain set <id> status=dropped --log "claude (for <owner>): dropped while prioritizing in hub <hub>"
    cd <repo> && reinstall-brain done <id> --log "claude (for <owner>): finished (confirmed while prioritizing)"
    ```
-   Offer to skip this step with one question before starting it.
+   Offer to skip this step with one question before starting it. Leave tasks with `managed_by` out of
+   every cluster: the tool named there owns them (say so if the owner asks).
 4. **Goals for loose work,** when the hub has goals and a project that has goals holds tasks serving
    none (`inbox --unserved`). One question per task or cluster: "Which goal is this for?" with the
    likeliest goals and **No goal**. Record it in the hub: `reinstall-hub cover <hub goal key> <task key>`.
@@ -225,7 +227,8 @@ project order and clearing dead work, with a pin only for the few tasks that mus
 ## Connect
 
 `connect <repo>`: `reinstall-hub connect <repo> [--name NAME]`. Say what happened in one line (a new
-brain or an existing one, the name it has in this hub). Offer to commit the repo's new files.
+brain or an existing one, the name it has in this hub). When it prints a `[kit]` line, the hub's kit
+is not installed in that repo: offer to run the command it gives. Offer to commit the repo's new files.
 
 ## Status
 
