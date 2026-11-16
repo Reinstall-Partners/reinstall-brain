@@ -1,27 +1,59 @@
 #!/usr/bin/env node
+import path from 'node:path';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
+import { locateBrain, requireBrain } from '../core/brain.js';
+import { lintBrain } from '../core/indexer.js';
+import {
+  openFresh, findRecord, listRecords, searchRecords, runSql, createRecord, updateRecord, supersede,
+  initBrain, defaultBrainName, type RecordRow,
+} from '../core/ops.js';
+import { parseArgs } from './args.js';
 
 const HELP = `reinstall-brain ${VERSION}: a git-native record store for agents and humans.
 
-Usage: reinstall-brain <command> [options]
+Usage: reinstall-brain <command> [options]     (add --json to any read command for machine output)
 
-Commands:
-  doctor [--json]   Check that this machine can run the brain (SQLite, full-text search, parsing)
-  version           Print the version
+Read
+  list [--type T] [--status S] [--tag X] [--scope P] [--limit N]
+  search "<words>" [--limit N]       full-text search over titles, bodies and tags
+  show <id>                          one record; also accepts a legacy id such as 512 or #512
+  sql "<SELECT ...>"                 read-only SQL over the index (table: records)
+
+Write
+  new <type> "<title>" [--body TEXT] [--tag X]... [--parent ID] [--scope P] [--author WHO]
+  set <id> field=value... [--log "who: what happened"]   change fields; value "" removes one
+  done <id> [--log "who: what happened"]
+  supersede <old-id> <new-id>        the new record replaces the old one
+
+Maintain
+  init [--name NAME]                 create brain/ in the current repository
+  index [--rebuild]                  refresh the index (every command does this first)
+  lint                               check every record; exit 1 on errors
+  where                              print the brain this folder uses
+  doctor                             check this machine can run the brain
+  version
 `;
 
+function printRecords(rows: RecordRow[]): void {
+  for (const r of rows) console.log(`${r.id}  ${r.type.padEnd(9)} ${r.status.padEnd(10)} ${r.title}`);
+  if (rows.length === 0) console.log('(none)');
+}
+
 async function main(argv: string[]): Promise<number> {
-  const [cmd, ...rest] = argv;
+  const a = parseArgs(argv);
+  const [cmd, ...pos] = a.positional;
+  const json = a.flag('json');
+  const out = (value: unknown, human: () => void) => (json ? console.log(JSON.stringify(value, null, 2)) : human());
+
   switch (cmd) {
     case 'doctor': {
       const r = await doctor();
-      if (rest.includes('--json')) console.log(JSON.stringify(r, null, 2));
-      else {
+      out(r, () => {
         console.log(`${r.ok ? 'ok' : 'FAIL'}  reinstall-brain ${r.version} on ${r.runtime}, ${r.platform}`);
         console.log(`    sqlite ${r.sqlite}, fts5 ${r.fts5 ? 'yes' : 'no'}, frontmatter ${r.frontmatter ? 'yes' : 'no'}`);
         for (const p of r.problems) console.log(`    problem: ${p}`);
-      }
+      });
       return r.ok ? 0 : 1;
     }
     case 'version':
@@ -33,10 +65,127 @@ async function main(argv: string[]): Promise<number> {
     case '--help':
       process.stdout.write(HELP);
       return 0;
-    default:
-      process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
-      return 2;
+    case 'init': {
+      const root = locateBrain() ?? process.cwd();
+      const { created, brain } = initBrain(root, a.value('name') ?? defaultBrainName(root));
+      out({ root: brain.root, name: brain.config.name, created }, () => {
+        console.log(`brain "${brain.config.name}" at ${path.join(brain.root, 'brain')}`);
+        for (const c of created) console.log(`  created ${c}`);
+        if (created.length === 0) console.log('  already set up; nothing changed');
+      });
+      return 0;
+    }
+    case 'where': {
+      const brain = requireBrain();
+      out({ root: brain.root, dir: brain.dir, name: brain.config.name }, () => console.log(brain.dir));
+      return 0;
+    }
+  }
+
+  const brain = requireBrain();
+  const opened = await openFresh(brain, cmd === 'index' && a.flag('rebuild'));
+  try {
+    switch (cmd) {
+      case 'index': {
+        const r = opened.refreshed;
+        out(r, () => {
+          console.log(`indexed ${r.scanned} files: ${r.added} added, ${r.updated} updated, ${r.removed} removed`);
+          for (const e of r.errors) console.log(`  error ${e.path}: ${e.error}`);
+        });
+        return r.errors.length ? 1 : 0;
+      }
+      case 'list': {
+        const rows = listRecords(opened, {
+          type: a.value('type'), status: a.value('status'), tag: a.value('tag'), scope: a.value('scope'),
+          limit: a.value('limit') ? Number(a.value('limit')) : undefined,
+        });
+        out(rows, () => printRecords(rows));
+        return 0;
+      }
+      case 'search': {
+        if (!pos.length) throw new Error('usage: reinstall-brain search "<words>"');
+        const rows = searchRecords(opened, pos.join(' '), a.value('limit') ? Number(a.value('limit')) : 25);
+        out(rows, () => {
+          for (const r of rows) console.log(`${r.id}  ${r.type.padEnd(9)} ${r.title}\n      ${r.snippet.replace(/\s+/g, ' ')}`);
+          if (!rows.length) console.log('(no matches)');
+        });
+        return 0;
+      }
+      case 'show': {
+        const r = pos[0] ? findRecord(opened, pos[0]) : undefined;
+        if (!r) throw new Error(`no record "${pos[0] ?? ''}"`);
+        out(r, () => {
+          console.log(r.path);
+          console.log(JSON.stringify(r.fields, null, 2));
+          console.log('');
+          console.log(r.body);
+        });
+        return 0;
+      }
+      case 'sql': {
+        const rows = runSql(opened, pos.join(' '));
+        out(rows, () => console.table(rows));
+        return 0;
+      }
+      case 'new': {
+        const [type, ...titleParts] = pos;
+        if (!type || !titleParts.length) throw new Error('usage: reinstall-brain new <type> "<title>"');
+        const r = createRecord(opened, {
+          type, title: titleParts.join(' '), body: a.value('body'), tags: a.values('tag'),
+          parent: a.value('parent'), scope: a.value('scope'), author: a.value('author'),
+        });
+        out(r, () => console.log(`${r.id}  ${r.path}`));
+        return 0;
+      }
+      case 'set': {
+        const [ref, ...assignments] = pos;
+        if (!ref || !assignments.length) throw new Error('usage: reinstall-brain set <id> field=value...');
+        const changes: Record<string, unknown> = {};
+        for (const kv of assignments) {
+          const i = kv.indexOf('=');
+          if (i < 1) throw new Error(`"${kv}" is not field=value`);
+          const k = kv.slice(0, i);
+          const v = kv.slice(i + 1);
+          changes[k] = v === '' ? undefined : ['tags', 'blocked_by', 'docs'].includes(k) ? v.split(',').map((s) => s.trim()) : v;
+        }
+        const r = updateRecord(opened, ref, changes, a.value('log'));
+        out(r, () => console.log(`${r.id}  ${r.path}`));
+        return 0;
+      }
+      case 'done': {
+        if (!pos[0]) throw new Error('usage: reinstall-brain done <id>');
+        const r = updateRecord(opened, pos[0], { status: 'done' }, a.value('log'));
+        out(r, () => console.log(`${r.id}  done  ${r.title}`));
+        return 0;
+      }
+      case 'supersede': {
+        if (pos.length < 2) throw new Error('usage: reinstall-brain supersede <old-id> <new-id>');
+        const r = supersede(opened, pos[0], pos[1]);
+        out(r, () => console.log(`${r.old.id} superseded by ${r.replacement.id}`));
+        return 0;
+      }
+      case 'lint': {
+        const issues = lintBrain(brain, opened.db);
+        const errors = issues.filter((i) => i.level === 'error').length;
+        out({ errors, warnings: issues.length - errors, issues }, () => {
+          for (const i of issues) console.log(`${i.level === 'error' ? 'error  ' : 'warning'} ${i.path}: ${i.message}`);
+          console.log(`${opened.refreshed.scanned} files, ${errors} errors, ${issues.length - errors} warnings`);
+        });
+        return errors ? 1 : 0;
+      }
+      default:
+        process.stderr.write(`Unknown command: ${cmd}\n\n${HELP}`);
+        return 2;
+    }
+  } finally {
+    opened.db.close();
   }
 }
 
-main(process.argv.slice(2)).then((code) => process.exit(code));
+main(process.argv.slice(2)).then(
+  (code) => process.exit(code),
+  (e) => {
+    process.stderr.write(`reinstall-brain: ${(e as Error).message}\n`);
+    process.exit(1);
+  },
+);

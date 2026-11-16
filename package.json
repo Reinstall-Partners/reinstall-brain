@@ -10,7 +10,6 @@
   },
   "files": [
     "dist",
-    "templates",
     "README.md",
     "LICENSE"
   ],
@@ -18,10 +17,11 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "gen": "node scripts/gen-templates.mjs",
+    "build": "node scripts/gen-templates.mjs && tsc -p tsconfig.json",
+    "test": "node scripts/gen-templates.mjs && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "compile": "node scripts/compile.mjs"
+    "compile": "node scripts/gen-templates.mjs && node scripts/compile.mjs"
   },
   "repository": {
     "type": "git",

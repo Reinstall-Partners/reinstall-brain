@@ -24,9 +24,21 @@ Standalone binaries for macOS, Linux and Windows (no Node needed) will be attach
 ## Commands
 
 ```
-reinstall-brain doctor    check this machine can run the brain
-reinstall-hub version
+reinstall-brain init                         create brain/ in this repository
+reinstall-brain new task "Ship the importer" --tag import
+reinstall-brain list --type task --status active [--json]
+reinstall-brain search "importer"
+reinstall-brain show <id>
+reinstall-brain set <id> status=blocked --log "sam: waiting on review"
+reinstall-brain done <id>
+reinstall-brain supersede <old-id> <new-id>
+reinstall-brain sql "SELECT type, count(*) FROM records GROUP BY type"
+reinstall-brain lint
+reinstall-brain doctor
 ```
+
+Every command refreshes the index from the files first, so hand edits are always picked up.
+The format is specified in [docs/brain-spec.md](docs/brain-spec.md).
 
 ## License
 

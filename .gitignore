@@ -3,3 +3,4 @@ dist/
 bin/
 *.tsbuildinfo
 .DS_Store
+src/core/templates.gen.ts

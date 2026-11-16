@@ -1,0 +1,36 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - name: standalone binaries for every platform
+        run: BUN=bun node scripts/compile.mjs bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64 bun-windows-x64
+      - name: archive binaries
+        run: |
+          cd bin
+          for d in */; do d=${d%/}; (cd "$d" && zip -q "../reinstall-brain-${GITHUB_REF_NAME}-$d.zip" reinstall-*); done
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" bin/*.zip --generate-notes
+      - name: publish to npm (only when an NPM_TOKEN secret is set)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
+        run: npm publish --access public
