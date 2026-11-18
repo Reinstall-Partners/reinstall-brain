@@ -157,7 +157,7 @@ Goals are the outcomes everything else is for. Few is better: 3 to 5 hub goals.
    ```
 4. **Rank them:** one question, "Which goal matters most?", then the next, until all are placed:
    `reinstall-hub place-goal <key> --at N`.
-5. **Tie project goals to hub goals:** for each project goal (`level: project`) not covered by a hub
+5. **Tie project goals to hub goals:** for each goal in a project's brain not covered by a hub
    goal, one question offering the hub goals it could count toward, plus **Stands alone**:
    `reinstall-hub cover <hub goal key> <project goal key>`.
 6. **Check pace** (when asked, or weekly): `reinstall-hub pace --run --author "claude (for <owner>)"`

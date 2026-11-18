@@ -1,11 +1,14 @@
 # Brain format, version 1
 
 A **brain** is a folder of plain markdown files in a git repository that records what happens over a
-project's life: decisions, tasks, questions, insights, notes and milestones. Humans and agents read
+project's life: decisions, tasks, questions, insights, notes, milestones and goals. Humans and agents read
 and write it with ordinary tools. The `reinstall-brain` CLI is optional: it makes the brain faster
 and safer to use, but a brain must stay fully usable with only a text editor.
 
-A **hub** is a brain that also connects other brains (see [Hub](#hub)).
+A **hub** is a brain that also connects other brains and holds one person's ranking of what matters
+across all of them (see [Hub](#hub)). A **kit** is a set of skills, hooks and scripts that a team layers
+on brains for its own workflows (planning, research, agent swarms); the core never needs one (see
+[Extending a brain](#extending-a-brain)).
 
 ## Principles
 
@@ -31,6 +34,7 @@ A **hub** is a brain that also connects other brains (see [Hub](#hub)).
     ├── templates/       one blank record per type
     ├── records/         the records, one folder per type
     │   ├── decisions/
+    │   ├── goals/
     │   ├── insights/
     │   ├── milestones/
     │   ├── notes/
@@ -133,7 +137,8 @@ put tool-specific data under `meta.<tool>`.
 **Field order.** Tools write fields in this order, and keep unknown fields after them:
 
 `id`, `type`, `title`, `status`, `created`, `scope`, `tags`, `assignee`, `author`, `delegate`,
-`updated`, `parent`, `supersedes`, `superseded_by`, `blocked_by`, `due`, `completed`, `importance`,
+`updated`, `parent`, `serves`, `supersedes`, `superseded_by`, `blocked_by`, `due`, `completed`,
+`importance`, `done_when`, `measure`, `covers`, `measure_cmd`, `ranking`, `managed_by`, `project`,
 `docs`, `legacy_id`, `meta`.
 
 The fields that change most (`status`, `scope`, `assignee`) are separated by fields that rarely
@@ -187,6 +192,9 @@ types:                    # optional: extra record types (see Extending)
     kit: example-kit
 hub: true                 # hubs only (see Hub)
 connects: []              # hubs only (see Hub)
+kit:                      # hubs only, optional: the toolkit its projects use
+  install: node ~/path/to/kit/install.mjs
+  marker: .claude/kit-installed.json
 ```
 
 ## Extending a brain
@@ -211,6 +219,23 @@ Kits build workflows on a brain without changing the core:
 
 A kit must not write fields with core meanings for other purposes, and must not store data only in
 `.local/` that other people need to see.
+
+## Plans and phases
+
+A plan is a long piece of work written as one markdown document in a kit folder, usually
+`brain/plans/` (a team may group plans in subfolders, such as `brain/plans/<project>/`). The core does not
+define what a plan says, only how tasks point at it, because a hub groups and orders work by plan:
+
+- A task that is a step of a plan carries `meta.plan_path`: the plan file's path from the repository
+  root (`brain/plans/003_importer.md`). `meta.plan_id` is a short handle for people (`'003'`, always a
+  string). When the task lives in a different brain from the plan (a plan in a hub whose work lands in a
+  project), `meta.plan_brain` names the brain that holds the plan file.
+- A plan is cut into **phases**: headings `## Phase N — <name>` (or `###`, `####`; `N` is a number with
+  an optional letter, `3b`). Each phase's task names it in its title: `Plan 003 Phase 2: Import screen`.
+- A phase is finished when the first line under its heading that starts with `**Status:** done` says so.
+  `lint` reports open phase tasks whose phase the plan marks done; `lint --fix` closes them.
+- A hub keeps a plan's open phases together, in phase order, and its inbox shows each plan as one row
+  (its next open phase). A whole plan can be pinned (see [Hub](#hub)).
 
 ## The index
 
@@ -242,26 +267,49 @@ connects:
     path: ~/dev/billing
 ```
 
-The hub keeps its own records like any brain (cross-project decisions, daily plans as notes) and
-adds `priorities.md`: the owner's personal ranking of tasks across every connected brain, and,
-under an optional `## Goals` heading, a ranking of goals. Goals live at both levels: a project's
-goals in its own brain, and goals that span projects in the hub's brain. A task `serves` one goal in
-its own brain; a hub goal reaches project work one way, by listing keys in `covers` (a brain never
-knows its hubs).
+The hub keeps its own records like any brain: goals and decisions that span projects, plans for work
+across repos, a plan for the day as a note. It adds what no project brain holds, the owner's
+**ranking**, and the owner ranks only two things:
+
+- **projects**, by the order of `connects:` (the first is the most important);
+- **goals**, as a numbered list under `## Goals` in `brain/priorities.md`.
+
+Every open task in every connected brain then takes its place from those, in this order:
+
+1. its project's rank. A task kept in the hub's own brain ranks as the project it is for: its
+   `project:` field, or else its plan's folder when that names a project (`brain/plans/<project>/…`);
+   a hub task for no project comes after every project;
+2. the rank of the goal it serves (ranked goals first, then unranked goals, then none);
+3. its plan: a plan's open phases stay together, in phase order (see [Plans and phases](#plans-and-phases));
+4. its due date, then its age.
+
+A task the owner wants ahead of that order is **pinned**: a numbered line under `## Tasks` in
+`priorities.md`. Pins come first, in file order; a pinned plan (`<brain>/plan:<plan id or path>`)
+brings its open phases. Pins are exceptions.
 
 ```markdown
 # Priorities
 
-1. web-app/7f3a  Build the import screen
-2. billing/91c2  Fix the proration bug
-3. web-app/c41e  Write the onboarding email
+## Goals
+
+1. sams-hub/q8r1  First paying customer by March
+2. web-app/k2m4  Importer handles every bank's CSV
+
+## Tasks
+
+1. billing/91c2  Fix the proration bug
 ```
 
-Line order is the rank: no two items are equal. Only the owner (or tools acting for them) edits
-this file. Tasks in connected brains that are not yet listed are the **inbox**; tasks whose status
-is no longer `active` or `blocked` drop off. A brain never knows which hubs read it, and holds no
-hub settings: a brain can belong to many hubs, and a machine can hold many hubs. A hub also carries
-`brain/HUB.md`, the agent guide for working it, refreshed by the tools.
+Line order is the rank: no two items are equal. Only the owner (or tools acting for them) edits this
+file. A pinned task whose status is no longer `active` or `blocked` drops off.
+
+**Goals live at both levels.** A project's goals are in its own brain; goals that span projects are in
+the hub's brain. A task `serves` one goal in its own brain. A hub goal reaches project work one way, by
+listing `<brain>/<id>` keys in `covers`: a brain never knows which hubs read it, and holds no hub
+settings, so a brain can belong to many hubs and a machine can hold many hubs, each with its owner's
+own ranking.
+
+A hub also carries `brain/HUB.md`, the agent guide for working it, refreshed by the tools.
 
 ### Wiring
 

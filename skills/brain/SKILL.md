@@ -21,7 +21,7 @@ argument-hint: "[setup|update|audit|goals|add <type>|done [id]|search <words>|sh
 # Brain
 
 The project's memory lives in `brain/` at the repo root: one markdown file per record (decisions,
-questions, insights, tasks, notes, milestones), committed to git. The files are the truth; the
+questions, insights, tasks, notes, milestones, goals), committed to git. The files are the truth; the
 `reinstall-brain` CLI reads and writes them safely and keeps a disposable SQLite index in
 `brain/.local/` for fast queries. The format, the fields and how to work by hand are in
 `brain/README.md`; read it once if anything below is unclear.

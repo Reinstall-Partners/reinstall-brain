@@ -1,7 +1,7 @@
 # This project's brain
 
-This folder is the project's memory: its decisions, tasks, questions, insights, notes and
-milestones, one markdown file per record. Read it before starting work, and record what you decide
+This folder is the project's memory: its decisions, tasks, questions, insights, notes, milestones
+and goals, one markdown file per record. Read it before starting work, and record what you decide
 and learn as you go. It works with plain file tools. The `reinstall-brain` CLI is faster and checks
 your work, but you never need it.
 
