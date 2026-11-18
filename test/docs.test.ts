@@ -10,7 +10,8 @@ import { openBrain } from '../src/core/brain.js';
 import { openHubDb, indexHub, priorities } from '../src/core/hub.js';
 
 const ROOT = path.resolve(__dirname, '..');
-const read = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8');
+// Windows checkouts may have CRLF line endings: compare as LF.
+const read = (rel: string) => readFileSync(path.join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
 
 function walk(rel: string, out: string[] = []): string[] {
   const abs = path.join(ROOT, rel);

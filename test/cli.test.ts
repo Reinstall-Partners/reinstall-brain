@@ -1,6 +1,9 @@
 // The CLIs are safe to probe: -h/--help never runs a command, an unknown flag is refused, and every
 // flag a command reads is one its help names. (GitHub issues #1 and #2.)
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Windows runners are slow at spawning processes and git init.
+vi.setConfig({ testTimeout: 30000 });
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
@@ -9,7 +12,7 @@ import { knownFlags, commandHelp, GLOBAL_FLAGS } from '../src/cli/args.js';
 import { normalizeTags } from '../src/core/record.js';
 
 const ROOT = path.resolve(__dirname, '..');
-const help = (f: string) => /const HELP = `([\s\S]*?)`;/.exec(readFileSync(path.join(ROOT, f), 'utf8'))![1];
+const help = (f: string) => /const HELP = `([\s\S]*?)`;/.exec(readFileSync(path.join(ROOT, f), 'utf8').replace(/\r\n/g, '\n'))![1];
 const run = (tool: 'brain' | 'hub', args: string[], cwd: string) =>
   // The built CLI (CI and `npm test` after `npm run build`): it is what agents probe.
   spawnSync(process.execPath, [path.join(ROOT, 'dist', 'cli', `${tool}.js`), ...args], {

@@ -84,7 +84,8 @@ function legacyHubFile(): string {
 
 function realOr(p: string): string {
   try {
-    return realpathSync(p);
+    // .native also expands Windows 8.3 short names (RUNNER~1), so two spellings of a folder compare equal.
+    return realpathSync.native(p);
   } catch {
     return path.resolve(p);
   }
