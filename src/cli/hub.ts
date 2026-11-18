@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { VERSION } from '../core/version.js';
-import { parseArgs } from './args.js';
+import { parseArgs, preflight } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, type Position,
   initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, forgetHub, goals, placeGoal, unrankGoal, cover,
@@ -21,7 +21,7 @@ else REINSTALL_HUB, else the default hub (reinstall-hub use).
 Usage: reinstall-hub <command> [--hub NAME|PATH] [--json]
 
 Set up
-  init [folder] [--name NAME] [--default]   create a hub (or adopt a folder), register it, wire its skills
+  init [folder] [--name NAME] [--default] [--dry-run]   create a hub (or adopt a folder), register it, wire its skills
   connect <repo> [--name NAME]     connect a project repo (sets up its brain if it has none) and wire it
   disconnect <name>                remove a brain from this hub (its own wiring stays)
   sync [--all]                     re-wire this hub (or every hub) and its connected repos
@@ -53,6 +53,8 @@ Work
 async function main(argv: string[]): Promise<number> {
   const a = parseArgs(argv);
   const [cmd, ...pos] = a.positional;
+  const stop = preflight(a, 'reinstall-hub', HELP, cmd);
+  if (stop !== null) return stop;
   const json = a.flag('json');
   const out = (value: unknown, human: () => void) => (json ? console.log(JSON.stringify(value, null, 2)) : human());
 

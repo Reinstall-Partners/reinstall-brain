@@ -84,7 +84,8 @@ export function formatRecord(fields: Fields, body: string): string {
 }
 
 export function normalizeTags(tags: unknown): string[] {
-  const list = Array.isArray(tags) ? tags : String(tags).split(',');
+  // `--tag a,b` and `tags: [a, b]` mean the same: commas split, in a list's items too.
+  const list = (Array.isArray(tags) ? tags : [tags]).flatMap((t) => String(t).split(','));
   return [...new Set(list.map((t) => String(t).trim().toLowerCase()).filter(Boolean))].sort();
 }
 

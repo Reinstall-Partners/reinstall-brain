@@ -13,7 +13,7 @@ import {
   openFresh, findRecord, listRecords, searchRecords, runSql, createRecord, updateRecord, supersede,
   initBrain, defaultBrainName, goalsReport, type RecordRow,
 } from '../core/ops.js';
-import { parseArgs } from './args.js';
+import { parseArgs, preflight } from './args.js';
 
 const HELP = `reinstall-brain ${VERSION}: a git-native record store for agents and humans.
 
@@ -97,6 +97,8 @@ function printRecords(rows: RecordRow[]): void {
 async function main(argv: string[]): Promise<number> {
   const a = parseArgs(argv);
   const [cmd, ...pos] = a.positional;
+  const stop = preflight(a, 'reinstall-brain', HELP, cmd);
+  if (stop !== null) return stop;
   const json = a.flag('json');
   const out = (value: unknown, human: () => void) => (json ? console.log(JSON.stringify(value, null, 2)) : human());
 
