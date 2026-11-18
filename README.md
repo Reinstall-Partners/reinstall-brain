@@ -142,6 +142,14 @@ reinstall-hub projects | goals             what you rank
 reinstall-hub place-project <name> --top   rank a project
 reinstall-hub place-goal <brain>/<id> --at 2
 reinstall-hub place <brain>/<id> --top     pin a task ahead of the order
+
+reinstall-brain goals                      this brain's goals and the tasks serving each
+reinstall-brain supersede <old> <new>      replace a decision, keeping the old one's history
+reinstall-brain lint                       check every record; doctor checks the machine
+reinstall-brain doctor
+reinstall-brain wire | unwire              add or remove this repo's skills, hook and guide blocks
+reinstall-hub use <name>                   make a hub the default
+reinstall-hub unrank-goal <brain>/<id>     take a goal out of the ranking
 ```
 
 `reinstall-brain --help` and `reinstall-hub --help` list every command and flag. Every command
