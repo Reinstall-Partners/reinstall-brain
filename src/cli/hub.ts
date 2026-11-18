@@ -2,7 +2,7 @@
 import { VERSION } from '../core/version.js';
 import { parseArgs } from './args.js';
 import {
-  locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, seedFromLegacy, type Position,
+  locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, type Position,
   initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
   projects, placeProject, inboxByPlan, moveRecord, pace,
 } from '../core/hub.js';
@@ -45,7 +45,6 @@ Work
   place <brain/id> --top|--bottom|--at N|--above KEY|--below KEY   pin a task ahead of the derived order
   place <brain>/plan:<id|path> …   pin a whole plan (its open phases, in order)
   unrank <brain/id>                unpin a task
-  seed                             append tasks ranked in migrated brains (legacy focus/priority)
   status                           each connected brain: records and problems
   version
 `;
@@ -276,11 +275,6 @@ async function main(argv: string[]): Promise<number> {
       case 'unrank': {
         const ok = unrank(hub, db, pos[0] ?? '');
         out({ removed: ok }, () => console.log(ok ? `removed ${pos[0]}` : `${pos[0]} was not ranked`));
-        return 0;
-      }
-      case 'seed': {
-        const added = seedFromLegacy(hub, db);
-        out({ added }, () => console.log(`appended ${added.length} task(s) to priorities.md`));
         return 0;
       }
       default:

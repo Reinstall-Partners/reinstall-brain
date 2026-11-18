@@ -1009,27 +1009,3 @@ export function unrank(hub: Brain, db: Db, key: string): boolean {
   return true;
 }
 
-/**
- * Seed priorities.md from rankings exported by `reinstall-brain migrate` (brain/.local/legacy-ranking.json):
- * focus items first, then lower priority numbers, then project order. Only open tasks; never reorders what is
- * already ranked, only appends.
- */
-export function seedFromLegacy(hub: Brain, db: Db): string[] {
-  const existing = readPriorities(hub);
-  const candidates: { key: string; focus: number; priority: number; ord: number }[] = [];
-  for (const b of db.prepare('SELECT name, ord, root FROM brains WHERE root IS NOT NULL').all()) {
-    const f = path.join(String(b.root), 'brain', '.local', 'legacy-ranking.json');
-    if (!existsSync(f)) continue;
-    for (const r of JSON.parse(readFileSync(f, 'utf8')) as { id: string; focus: number; priority: number | null }[]) {
-      const key = `${b.name}/${r.id}`;
-      const item = db.prepare('SELECT type, status FROM items WHERE key = ?').get(key);
-      if (!item || item.type !== 'task' || !OPEN.includes(String(item.status)) || existing.includes(key)) continue;
-      candidates.push({ key, focus: r.focus, priority: r.priority ?? 999, ord: Number(b.ord) });
-    }
-  }
-  candidates.sort((a, b) => b.focus - a.focus || a.priority - b.priority || a.ord - b.ord);
-  const added = candidates.map((c) => c.key);
-  const keys = [...existing, ...added];
-  writePriorities(hub, keys, titleMap(db, keys));
-  return added;
-}

@@ -94,12 +94,10 @@ Run when the repo has no `brain/`, the CLI is missing, or the session said the w
    repo: the `/brain` skill, a session hook that loads the brain's context, and a short guide block in
    `CLAUDE.md` and `AGENTS.md`. On a brain that already exists it only repairs the wiring
    (`reinstall-brain wire` does that alone).
-3. **An older brain** (`cowork/brain/BRAIN.db` from TB Claude Kit): offer
-   `reinstall-brain migrate --dry-run`, then `reinstall-brain migrate --move-docs`.
-4. **A hub.** If the user keeps one, offer to connect this repo to it:
+3. **A hub.** If the user keeps one, offer to connect this repo to it:
    `reinstall-hub list`, then `reinstall-hub connect . --hub <name>`. Connecting is what puts this
    repo's tasks in the hub's ranking.
-5. Commit `brain/`, `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json` and `.gitignore` when the user
+4. Commit `brain/`, `CLAUDE.md`, `AGENTS.md`, `.claude/settings.json` and `.gitignore` when the user
    agrees. The skill links themselves are git-ignored (they hold this machine's paths).
 
 ---

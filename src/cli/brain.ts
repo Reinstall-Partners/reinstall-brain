@@ -13,7 +13,6 @@ import {
   initBrain, defaultBrainName, goalsReport, type RecordRow,
 } from '../core/ops.js';
 import { parseArgs } from './args.js';
-import { migrateBrain } from '../core/migrate.js';
 
 const HELP = `reinstall-brain ${VERSION}: a git-native record store for agents and humans.
 
@@ -39,8 +38,6 @@ Maintain
   wire [--dry-run]                   re-link this repo's skills, session hook and guide lines
   update                             git pull this install, rebuild, and re-wire every hub
   index [--rebuild]                  refresh the index (every command does this first)
-  migrate [--from cowork/brain/BRAIN.db] [--dry-run] [--move-docs]
-                                     convert a TB Claude Kit brain into records (one-time)
   lint [--fix] [--author WHO]        check every record; exit 1 on errors. --fix closes phase tasks
                                      whose plan file marks the phase done
   where                              print the brain this folder uses
@@ -247,31 +244,6 @@ async function main(argv: string[]): Promise<number> {
         const r = supersede(opened, pos[0], pos[1]);
         out(r, () => console.log(`${r.old.id} superseded by ${r.replacement.id}`));
         return 0;
-      }
-      case 'migrate': {
-        const from = path.resolve(a.value('from') ?? path.join(brain.root, 'cowork', 'brain', 'BRAIN.db'));
-        const r = await migrateBrain(brain, { from, dryRun: a.flag('dry-run'), moveDocs: a.flag('move-docs') });
-        if (r.written) refresh(brain, opened.db);
-        const issues = r.written ? lintBrain(brain, opened.db) : [];
-        const errors = issues.filter((i) => i.level === 'error');
-        out({ ...r, lintErrors: errors }, () => {
-          console.log(`${r.written ? 'migrated' : 'dry run:'} ${r.records} records from ${r.source}`);
-          const keys = [...new Set([...Object.keys(r.sourceCounts), ...Object.keys(r.migratedCounts)])].sort();
-          for (const k of keys) {
-            const s = r.sourceCounts[k] ?? 0;
-            const m = r.migratedCounts[k] ?? 0;
-            console.log(`  ${k.padEnd(22)} ${String(s).padStart(5)} -> ${String(m).padStart(5)}${s === m ? '' : '   MISMATCH'}`);
-          }
-          if (r.skipped.length) console.log(`  skipped ${r.skipped.length}: ${[...new Set(r.skipped.map((x) => x.reason))].join('; ')}`);
-          console.log(`  unresolved links ${r.unresolvedLinks.length}, path rewrites ${r.pathRewrites}, ranking rows ${r.rankingExported}`);
-          if (r.updated.length) console.log(`  caught up ${r.updated.length} records whose old row changed since the last run`);
-          for (const c of r.conflicts) console.log(`  CONFLICT legacy #${c.legacy_id} -> ${c.path}: changed in both the old brain and the record; left alone`);
-          for (const [t, n] of Object.entries(r.swarmRowsExported)) console.log(`  swarm table ${t}: ${n} rows exported to brain/.local/legacy-swarm.json`);
-          for (const d of r.docsMoved) console.log(`  moved ${d}`);
-          if (r.written) console.log(`  lint: ${errors.length} errors, ${issues.length - errors.length} warnings`);
-          for (const e of errors.slice(0, 20)) console.log(`    ${e.path}: ${e.message}`);
-        });
-        return (r.written && errors.length) || r.conflicts.length ? 1 : 0;
       }
       case 'lint': {
         if (a.flag('fix')) {
