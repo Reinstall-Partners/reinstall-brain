@@ -78,10 +78,16 @@ Just one repo, no hub: `cd <repo> && reinstall-brain init`.
 | `CLAUDE.md`, `AGENTS.md` | a short block between `reinstall-brain` markers pointing the agent at `brain/README.md` | yes |
 | `.claude/settings.json` | a session-start hook that loads the brain's open tasks, questions and decisions | yes |
 | `.claude/skills/brain` (and `hub` in a hub) | links to the skills in your clone | no: git-ignored (managed block in `.gitignore`) |
+| in a hub only: `brain/HUB.md`, `brain/priorities.md` | the hub's agent guide, and your goal ranking | yes |
 
 Everything outside `brain/` is in clearly marked blocks, and your own lines are never touched.
 `reinstall-brain unwire` removes all of it again (`--dry-run` shows what it would remove) and leaves
-`brain/` alone; `reinstall-hub disconnect <name>` takes a repo out of a hub.
+`brain/` alone. Take the repo out of any hub first (`reinstall-hub disconnect <name>`), or the hub's next
+`sync` wires it again; `unwire` tells you when one still connects it.
+
+`reinstall-hub init` also adds the hub to this machine's list of hubs (in `~/.config/reinstall-brain/`),
+so commands find it by name: `reinstall-hub list` shows them, `reinstall-hub forget <name>` takes one off
+(the folder is untouched).
 
 ## How it compares
 

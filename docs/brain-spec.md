@@ -281,7 +281,7 @@ Every open task in every connected brain then takes its place from those, in thi
    a hub task for no project comes after every project;
 2. the rank of the goal it serves (ranked goals first, then unranked goals, then none);
 3. its plan: a plan's open phases stay together, in phase order (see [Plans and phases](#plans-and-phases));
-4. its due date, then its age.
+4. its due date, then its age (oldest first); tasks still level are ordered by key.
 
 A task the owner wants ahead of that order is **pinned**: a numbered line under `## Tasks` in
 `priorities.md`. Pins come first, in file order; a pinned plan (`<brain>/plan:<plan id or path>`)

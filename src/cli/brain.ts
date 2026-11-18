@@ -3,6 +3,7 @@ import path from 'node:path';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { wire, unwire, formatWire, packageRoot } from '../core/wire.js';
+import { hubsConnecting } from '../core/hub.js';
 import { openDb } from '../core/sqlite.js';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
@@ -37,7 +38,7 @@ Maintain
   init [--name NAME] [--no-wire]     create brain/ in the current repository and wire its skill and guide
   wire [--dry-run]                   re-link this repo's skills, session hook and guide lines
   unwire [--dry-run]                 remove what wire added (skill links, hook, CLAUDE.md/AGENTS.md/.gitignore
-                                     blocks); brain/ stays (in a hub, disconnect it first)
+                                     blocks); brain/ stays. Warns when a hub still connects it
   update                             git pull this install, rebuild, and re-wire every hub
   index [--rebuild]                  refresh the index (every command does this first)
   lint [--fix] [--author WHO]        check every record; exit 1 on errors. --fix closes phase tasks
@@ -49,6 +50,18 @@ Maintain
 `;
 
 /** Parse field=value pairs. Dotted keys (meta.plan_id=002) set nested values; list fields split on commas; "" removes. */
+/** A list field's value: `a,b` or a JSON array `["a","b"]`. */
+function listValue(raw: string): string[] {
+  const t = raw.trim();
+  if (t.startsWith('[')) {
+    try {
+      const v = JSON.parse(t);
+      if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+    } catch {}
+  }
+  return raw.split(',').map((x) => x.trim()).filter(Boolean);
+}
+
 function parseAssignments(pairs: string[]): Record<string, unknown> {
   const changes: Record<string, unknown> = {};
   for (const kv of pairs) {
@@ -59,7 +72,7 @@ function parseAssignments(pairs: string[]): Record<string, unknown> {
     if (key === 'body') throw new Error('the body is not a field: use --body TEXT or --body-file F');
     const value =
       raw === '' ? undefined
-      : ['tags', 'blocked_by', 'docs', 'covers'].includes(key) ? raw.split(',').map((x) => x.trim()).filter(Boolean)
+      : ['tags', 'blocked_by', 'docs', 'covers'].includes(key) ? listValue(raw)
       : key === 'importance' && /^-?\d+$/.test(raw) ? Number(raw)
       : raw;
     const parts = key.split('.');
@@ -125,7 +138,11 @@ async function main(argv: string[]): Promise<number> {
     case 'unwire': {
       const brain = requireBrain();
       const done = unwire(brain.root, { dryRun: a.flag('dry-run') });
-      out(done, () => console.log(formatWire(done) || 'nothing to remove'));
+      const hubs = hubsConnecting(brain.root);
+      out({ removed: done, connectedTo: hubs }, () => {
+        console.log(formatWire(done) || 'nothing to remove');
+        if (hubs.length) console.log(`note: ${hubs.join(', ')} connect${hubs.length === 1 ? 's' : ''} this repo, and a sync there wires it again: reinstall-hub disconnect <name> --hub <hub> first`);
+      });
       return 0;
     }
     case 'update': {

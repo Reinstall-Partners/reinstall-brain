@@ -38,7 +38,7 @@ const HOOK_SKILL_RE = /reinstall-brain[\\/]+skills[\\/]+(brain|hub)$/;
 export type Role = 'brain' | 'hub';
 
 export interface WireLine {
-  kind: 'ok' | 'link' | 'relink' | 'write' | 'occupied' | 'skip';
+  kind: 'ok' | 'link' | 'relink' | 'write' | 'remove' | 'occupied' | 'skip';
   what: string;
   note?: string;
 }
@@ -317,7 +317,7 @@ export function unwire(root: string, opts: { dryRun?: boolean } = {}): WireLine[
       continue;
     }
     if (!dryRun) removeLink(at);
-    out.push({ kind: 'write', what: rel, note: 'link removed' });
+    out.push({ kind: 'remove', what: rel, note: dryRun ? 'would remove the link' : 'link removed' });
   }
   const strip = (rel: string, begin: string, end: string) => {
     const p = path.join(root, rel);
@@ -334,7 +334,7 @@ export function unwire(root: string, opts: { dryRun?: boolean } = {}): WireLine[
       if (next.trim()) writeFileSync(p, `${next.trimEnd()}\n`);
       else unlinkSync(p);
     }
-    out.push({ kind: 'write', what: `${rel} block`, note: next.trim() ? 'removed' : 'removed (file was only the block: deleted)' });
+    out.push({ kind: 'remove', what: `${rel} block`, note: `${dryRun ? 'would remove' : 'removed'}${next.trim() ? '' : '; the file held only the block, so it goes too'}` });
   };
   strip('CLAUDE.md', BLOCK_BEGIN, BLOCK_END);
   strip('AGENTS.md', BLOCK_BEGIN, BLOCK_END);
@@ -359,7 +359,7 @@ export function unwire(root: string, opts: { dryRun?: boolean } = {}): WireLine[
           if (Object.keys(cfg).length) writeFileSync(sp, `${JSON.stringify(cfg, null, 2)}\n`);
           else unlinkSync(sp);
         }
-        out.push({ kind: 'write', what: '.claude/settings.json SessionStart hook', note: 'removed' });
+        out.push({ kind: 'remove', what: '.claude/settings.json SessionStart hook', note: dryRun ? 'would remove' : 'removed' });
       }
     } catch {
       out.push({ kind: 'occupied', what: '.claude/settings.json', note: 'is not valid JSON; remove the reinstall-brain hook by hand' });

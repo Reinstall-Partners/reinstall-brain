@@ -3,7 +3,7 @@ import { VERSION } from '../core/version.js';
 import { parseArgs } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, type Position,
-  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, goals, placeGoal, unrankGoal, cover,
+  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, forgetHub, goals, placeGoal, unrankGoal, cover,
   projects, placeProject, inboxByPlan, moveRecord, pace,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
@@ -26,6 +26,7 @@ Set up
   disconnect <name>                remove a brain from this hub (its own wiring stays)
   sync [--all]                     re-wire this hub (or every hub) and its connected repos
   list                             the hubs on this machine
+  forget <name|path>               take a hub off this machine's list (init adds it; the folder stays)
   use <name|path>                  make a hub the default
 
 Work
@@ -68,6 +69,12 @@ async function main(argv: string[]): Promise<number> {
     const root = saveHub(pos[0]);
     console.log(`default hub: ${root}`);
     return 0;
+  }
+  if (cmd === 'forget') {
+    if (!pos[0]) throw new Error('usage: reinstall-hub forget <name or path>');
+    const gone = forgetHub(pos[0]);
+    out({ forgotten: gone ?? null }, () => console.log(gone ? `forgot ${gone.name} (${gone.path}); its folder is untouched` : `no hub named ${pos[0]} on this machine`));
+    return gone ? 0 : 1;
   }
   if (cmd === 'list') {
     const hubs = listHubs();

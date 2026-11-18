@@ -16,7 +16,7 @@ types and fields, links).
 | Plans and phases | `docs/brain-spec.md` (Plans and phases) | `templates/hub/HUB.md`, `skills/hub/SKILL.md` |
 | What a hub is, hub and spoke, why, the demo | `docs/hub.md` | `README.md`, `docs/brain-spec.md` (Hub), `templates/hub/HUB.md` |
 | Ranking: projects, goals, plans, pins | `docs/brain-spec.md` (Hub) | `docs/hub.md`, `templates/hub/HUB.md`, `skills/hub/SKILL.md` |
-| Goals: levels, `serves`, `covers`, pace | `templates/hub/HUB.md` (Goals) | `docs/brain-spec.md`, `skills/hub/SKILL.md` |
+| Goals: levels, `serves`, `covers`, pace | `docs/hub.md` (Goals at two levels) | `docs/brain-spec.md`, `templates/hub/HUB.md`, `skills/hub/SKILL.md` |
 | Wiring: skills, session hook, CLAUDE.md / AGENTS.md blocks | `docs/brain-spec.md` (Wiring) | `README.md`, `skills/brain/SKILL.md`, `skills/hub/SKILL.md` |
 | Working a brain day to day (agent guide) | `templates/brain/README.md` | `guide/session.md` |
 | Working a hub day to day (agent guide) | `templates/hub/HUB.md` | `skills/hub/SKILL.md` |

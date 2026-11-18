@@ -179,6 +179,10 @@ export function lintFields(fields: Fields, fileName: string | undefined, knownTy
     if (fields.type !== 'goal') warnings.push('covers is meant for goals (a hub goal covering project work)');
   }
   if (fields.type === 'goal' && fields.done_when === undefined) warnings.push('a goal should say when it is done (done_when)');
+  for (const f of LIST_FIELDS) {
+    const v = fields[f];
+    if (Array.isArray(v) && v.some((x) => /^\s*[\[\]"']|[\[\]"']\s*$/.test(String(x)))) warnings.push(`${f} has an item that looks encoded (${JSON.stringify(v)}): write it as a plain list, [a, b]`);
+  }
   const known = new Set<string>(FIELD_ORDER);
   for (const k of Object.keys(fields)) if (!known.has(k)) warnings.push(`unknown field "${k}" (move it under meta:)`);
   return { errors: problems, warnings };

@@ -62,7 +62,7 @@ Every open task in every connected repo then takes its place on its own, by:
 1. its project's rank;
 2. the rank of the goal it serves (`serves:` in the task);
 3. its plan: a plan's open phases stay together, in phase order;
-4. its due date, then its age.
+4. its due date, then its age (oldest first).
 
 When one task really must jump the queue (someone is waiting on it, a hard deadline), you **pin** it
 under `## Tasks` in `priorities.md`. Pins are the exception. Because the order is derived, adding a
@@ -112,14 +112,15 @@ reinstall-hub priorities --hub examples/demo/acme-hub
   2.  widgets/ngub   Plan 001 Phase 3: Error report  -> The importer handles every bank CSV …
   3.  widgets/jzqb   Upgrade the date library
   4.  gadgets/zbo2   Write the launch post  (due 2026-12-01)
-  5.  acme-hub/0jtt  Pick a payment provider
-  6.  gadgets/aakp   Fix the typo on the pricing page
+  5.  gadgets/aakp   Fix the typo on the pricing page
+  6.  acme-hub/0jtt  Pick a payment provider
 ```
 
 Why that order: `widgets` is the first project, and its importer plan serves the top-ranked project
 goal, so its open phases lead, in phase order (Phase 1 is marked done in the plan, so it is gone).
-`gadgets` is second; its dated task comes before its undated one. "Pick a payment provider" is kept in
-the hub but marked `project: gadgets`, so it ranks with that project. Now try:
+`gadgets` is second: its dated task comes first, then its undated ones, oldest first. "Pick a payment
+provider" is kept in the hub's own brain but marked `project: gadgets`, so it ranks with that project.
+"Upgrade the date library" serves no goal, so it follows the importer's phases inside `widgets`. Now try:
 
 ```bash
 reinstall-hub place-project gadgets --top --hub examples/demo/acme-hub   # gadgets' work moves up, all of it

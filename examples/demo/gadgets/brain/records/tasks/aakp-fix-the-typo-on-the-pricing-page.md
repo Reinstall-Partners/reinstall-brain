@@ -3,7 +3,7 @@ id: aakp
 type: task
 title: Fix the typo on the pricing page
 status: active
-created: 2026-11-18T17:18:41-06:00
+created: 2026-11-03T09:12:00-06:00
 author: sam
 ---
 

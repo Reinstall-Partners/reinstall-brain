@@ -117,6 +117,33 @@ function writeRegistry(reg: Registry): void {
   if (existsSync(legacyHubFile())) rmSync(legacyHubFile());
 }
 
+/** Take a hub off this machine's list (its folder is not touched). Returns the entry removed, if any. */
+export function forgetHub(nameOrPath: string): { name: string; path: string } | undefined {
+  const reg = readRegistry();
+  const target = realOr(expandHome(nameOrPath));
+  const i = reg.hubs.findIndex((h) => h.name === nameOrPath || realOr(expandHome(h.path)) === target);
+  if (i < 0) return undefined;
+  const [gone] = reg.hubs.splice(i, 1);
+  if (reg.default && (reg.default === gone.path || realOr(expandHome(reg.default)) === realOr(expandHome(gone.path)))) reg.default = undefined;
+  writeRegistry(reg);
+  return gone;
+}
+
+/** Registered hubs whose connects: list this folder (so their next sync would wire it again). */
+export function hubsConnecting(root: string): string[] {
+  const out: string[] = [];
+  const me = realOr(root);
+  for (const h of readRegistry().hubs) {
+    const hr = locateBrain(expandHome(h.path));
+    if (!hr) continue;
+    try {
+      const hub = openBrain(hr);
+      if (hub.config.connects.some((c) => c.path && realOr(connectPath(hub, c.path)) === me)) out.push(h.name);
+    } catch {}
+  }
+  return out;
+}
+
 export function tildePath(p: string): string {
   const home = os.homedir();
   const abs = path.resolve(p);

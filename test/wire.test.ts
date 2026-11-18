@@ -9,7 +9,7 @@ import path from 'node:path';
 import { initBrain, openFresh, createRecord } from '../src/core/ops.js';
 import { openBrain } from '../src/core/brain.js';
 import {
-  initHub, connectRepo, disconnectRepo, syncHub, locateHub, listHubs, saveHub, openHubDb, indexHub, inbox,
+  initHub, connectRepo, disconnectRepo, syncHub, locateHub, listHubs, saveHub, openHubDb, indexHub, inbox, forgetHub, hubsConnecting,
 } from '../src/core/hub.js';
 import { wire, unwire, packageRoot } from '../src/core/wire.js';
 
@@ -142,6 +142,19 @@ describe('hubs', () => {
     expect(disconnectRepo(hub, 'beta')).toBe(true);
     expect(openBrain(hub.root).config.connects.map((c) => c.name)).toEqual(['alpha']);
     expect(syncHub(openBrain(hub.root)).lines.every((l) => !l.error)).toBe(true);
+  });
+
+  it('forgets a hub, and finds the hubs that connect a repo', () => {
+    const hubDir = path.join(base, 'h1');
+    initHub(hubDir);
+    const r = repo('epsilon');
+    initBrain(r, 'epsilon');
+    connectRepo(locateHub(undefined, hubDir), r);
+    expect(hubsConnecting(r)).toEqual([openBrain(hubDir).config.name]);
+    expect(forgetHub(openBrain(hubDir).config.name)?.name).toBe(openBrain(hubDir).config.name);
+    expect(listHubs().some((h) => h.name === openBrain(hubDir).config.name)).toBe(false);
+    expect(hubsConnecting(r)).toEqual([]);
+    expect(existsSync(path.join(hubDir, 'brain', 'brain.yaml'))).toBe(true);
   });
 
   it('resolves a relative connects path from the hub folder', async () => {
