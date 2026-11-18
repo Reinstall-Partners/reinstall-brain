@@ -60,6 +60,11 @@ describe('docs match the code', () => {
     expect(missing).toEqual([]);
   });
 
+  it('package.json and the CLI report the same version', async () => {
+    const { VERSION } = await import('../src/core/version.js');
+    expect(JSON.parse(read('package.json')).version).toBe(VERSION);
+  });
+
   it('the spec lists every core type and field, in the code\'s field order', () => {
     const spec = read('docs/brain-spec.md');
     for (const [type, folder] of Object.entries(CORE_TYPES)) {

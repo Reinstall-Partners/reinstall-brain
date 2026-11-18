@@ -81,12 +81,14 @@ const yaml = fs.readFileSync(path.join(root, 'brain', 'brain.yaml'), 'utf8');
 const isHub = /^hub:\s*true\s*$/m.test(yaml) || /^connects:\s*\n\s+-/m.test(yaml);
 
 // ---- upkeep ----
-guard('build', () => {
-  const head = git(['rev-parse', 'HEAD'], PKG);
-  const stampFile = path.join(PKG, 'dist', '.build-head');
-  const built = fs.existsSync(stampFile) ? fs.readFileSync(stampFile, 'utf8').trim() : '';
-  if (head && built && head !== built) notice('🔄 Reinstall Brain was updated but not rebuilt. Tell the user, in one line: run `reinstall-brain update`.');
-});
+await (async () => { try { await (async () => {
+  // Built from the source on disk, level with GitHub, and the only reinstall-brain on PATH
+  // (scripts/freshness.mjs). The upstream is fetched in the background at most once a day.
+  const f = await import(new URL('../scripts/freshness.mjs', import.meta.url));
+  f.fetchUpstream();
+  const lines = f.staleLines();
+  if (lines.length) notice(`🔄 ${lines.join(' ')} Tell the user in one line, and offer to run it.`);
+})(); } catch (e) { notice(`⚠️ reinstall-brain session-start (freshness) failed: ${String((e && e.message) || e).split('\n')[0]}`); } })();
 guard('wiring', () => {
   const want = isHub ? ['brain', 'hub'] : ['brain'];
   const missing = want.filter((n) => ['.claude', '.agents'].some((d) => !fs.existsSync(path.join(root, d, 'skills', n, 'SKILL.md'))));

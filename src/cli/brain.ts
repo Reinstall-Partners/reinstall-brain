@@ -47,7 +47,8 @@ Maintain
                                      goals; a hub's ranking), for agents with no session hook
   where                              print the brain this folder uses
   kitdb <name> "<sql>" [--json]      read/write SQL on a kit's own live-state database, brain/.local/<name>.db
-  doctor                             check this machine can run the brain
+  doctor [--fetch]                   check this machine can run the brain, and that it runs the clone's current
+                                     build, level with GitHub (--fetch checks GitHub now), with no other copy on PATH
   version
 `;
 
@@ -102,6 +103,12 @@ async function main(argv: string[]): Promise<number> {
   switch (cmd) {
     case 'doctor': {
       const r = await doctor();
+      // Is this the clone's current build, level with GitHub, and the only copy on PATH?
+      try {
+        const f = JSON.parse(execFileSync(process.execPath, [path.join(packageRoot(), 'scripts', 'freshness.mjs'), '--json', ...(a.flag('fetch') ? ['--fetch'] : [])], { encoding: 'utf8', timeout: 30000 }));
+        r.problems.push(...f.problems);
+        if (f.problems.length) r.ok = false;
+      } catch {}
       out(r, () => {
         console.log(`${r.ok ? 'ok' : 'FAIL'}  reinstall-brain ${r.version} on ${r.runtime}, ${r.platform}`);
         console.log(`    sqlite ${r.sqlite}, fts5 ${r.fts5 ? 'yes' : 'no'}, frontmatter ${r.frontmatter ? 'yes' : 'no'}`);
@@ -110,9 +117,15 @@ async function main(argv: string[]): Promise<number> {
       return r.ok ? 0 : 1;
     }
     case 'version':
-    case '--version':
-      console.log(VERSION);
+    case '--version': {
+      // The version, and the commit dist/ was built from (scripts/freshness.mjs writes the stamp).
+      let from = '';
+      try {
+        from = String(JSON.parse(readFileSync(path.join(packageRoot(), 'dist', '.build-stamp.json'), 'utf8')).head || '').slice(0, 7);
+      } catch {}
+      console.log(from ? `${VERSION} (built from ${from})` : VERSION);
       return 0;
+    }
     case undefined:
     case 'help':
     case '--help':

@@ -46,7 +46,7 @@ you see and what to try next. Nothing in your own repos is touched.
 
 You need Node 22.13 or newer and git. Install once (the two lines above): `setup.mjs` builds the CLI,
 puts `reinstall-brain` and `reinstall-hub` on your PATH, and points `~/.reinstall-brain` at the clone.
-`reinstall-brain update` pulls and rebuilds later.
+`reinstall-brain update` pulls and rebuilds later. The session hook tells you when your copy is stale (a pull that wasn't rebuilt, commits on GitHub you haven't pulled, checked once a day, or a second `reinstall-brain` on your PATH); `reinstall-brain doctor --fetch` checks now.
 
 **With your agent (easiest).** Make a hub and let your agent do the rest:
 
