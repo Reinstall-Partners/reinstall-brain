@@ -2,7 +2,7 @@
 import path from 'node:path';
 import { readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { wire, formatWire, packageRoot } from '../core/wire.js';
+import { wire, unwire, formatWire, packageRoot } from '../core/wire.js';
 import { openDb } from '../core/sqlite.js';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
@@ -36,6 +36,8 @@ Write
 Maintain
   init [--name NAME] [--no-wire]     create brain/ in the current repository and wire its skill and guide
   wire [--dry-run]                   re-link this repo's skills, session hook and guide lines
+  unwire [--dry-run]                 remove what wire added (skill links, hook, CLAUDE.md/AGENTS.md/.gitignore
+                                     blocks); brain/ stays (in a hub, disconnect it first)
   update                             git pull this install, rebuild, and re-wire every hub
   index [--rebuild]                  refresh the index (every command does this first)
   lint [--fix] [--author WHO]        check every record; exit 1 on errors. --fix closes phase tasks
@@ -118,6 +120,12 @@ async function main(argv: string[]): Promise<number> {
       const brain = requireBrain();
       const wired = wire(brain.root, brain.config.hub ? 'hub' : 'brain', { dryRun: a.flag('dry-run') });
       out(wired, () => console.log(formatWire(wired) || 'wired; nothing changed'));
+      return 0;
+    }
+    case 'unwire': {
+      const brain = requireBrain();
+      const done = unwire(brain.root, { dryRun: a.flag('dry-run') });
+      out(done, () => console.log(formatWire(done) || 'nothing to remove'));
       return 0;
     }
     case 'update': {

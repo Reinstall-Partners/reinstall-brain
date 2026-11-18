@@ -274,7 +274,7 @@ export function connectRepo(hub: Brain, repo: string, opts: { name?: string } = 
   }
   const brain = openBrain(root);
   if (realOr(root) === realOr(hub.root)) throw new Error('a hub cannot connect itself: its own brain is always included');
-  const existing = hub.config.connects.find((c) => c.path && realOr(expandHome(c.path)) === realOr(root));
+  const existing = hub.config.connects.find((c) => c.path && realOr(connectPath(hub, c.path)) === realOr(root));
   let name = existing?.name ?? opts.name ?? brain.config.name;
   if (!existing) {
     const taken = new Set(hub.config.connects.map((c) => c.name).concat(hub.config.name));
@@ -314,7 +314,7 @@ export interface SyncResult {
 export function syncHub(hub: Brain): SyncResult {
   const lines: SyncResult['lines'] = [{ where: hub.config.name, wired: wire(hub.root, 'hub') }];
   for (const c of hub.config.connects) {
-    const root = c.path ? locateBrain(expandHome(c.path)) : undefined;
+    const root = c.path ? locateBrain(connectPath(hub, c.path)) : undefined;
     if (!root) {
       lines.push({ where: c.name, wired: [], error: c.path ? `not on this machine (${c.path})` : 'no local path' });
       continue;
@@ -352,6 +352,11 @@ export async function openHubDb(hub: Brain): Promise<Db> {
 }
 
 /** Refresh every connected brain's own index, then copy its records into the hub's index. The hub's own brain counts too. */
+/** A connected brain's folder: `~` is the home folder, and a relative path is relative to the hub's folder. */
+export function connectPath(hub: Brain, p: string): string {
+  return path.resolve(hub.root, expandHome(p));
+}
+
 export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
   const result: HubIndexResult = { brains: [] };
   db.exec('BEGIN');
@@ -361,7 +366,7 @@ export async function indexHub(hub: Brain, db: Db): Promise<HubIndexResult> {
     const insB = db.prepare('INSERT OR REPLACE INTO brains VALUES (?,?,?,?,?)');
     const sources = [{ name: hub.config.name, path: hub.root }, ...hub.config.connects];
     for (const [ord, c] of sources.entries()) {
-      const root = c.path ? locateBrain(expandHome(c.path)) : undefined;
+      const root = c.path ? locateBrain(connectPath(hub, c.path)) : undefined;
       if (!root || !existsSync(path.join(root, 'brain', 'brain.yaml'))) {
         const error = c.path ? `no brain at ${c.path}` : 'no local path (remote-only brains are not indexed yet)';
         result.brains.push({ name: c.name, root: null, records: 0, error });

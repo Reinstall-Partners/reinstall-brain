@@ -1,0 +1,9 @@
+format: 1
+name: acme-hub
+title: Acme hub
+hub: true
+connects:
+  - name: widgets
+    path: ../widgets
+  - name: gadgets
+    path: ../gadgets

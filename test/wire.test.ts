@@ -11,7 +11,7 @@ import { openBrain } from '../src/core/brain.js';
 import {
   initHub, connectRepo, disconnectRepo, syncHub, locateHub, listHubs, saveHub, openHubDb, indexHub, inbox,
 } from '../src/core/hub.js';
-import { wire, packageRoot } from '../src/core/wire.js';
+import { wire, unwire, packageRoot } from '../src/core/wire.js';
 
 let saved: Record<string, string | undefined>;
 let base: string;
@@ -61,6 +61,28 @@ describe('wiring', () => {
     // One hook, not two.
     const again = JSON.parse(readFileSync(path.join(r, '.claude', 'settings.json'), 'utf8'));
     expect(JSON.stringify(again).match(/session-start\.mjs/g)!.length).toBe(1);
+  });
+
+  it('unwire removes only what wire added, and keeps brain/ and the owner\'s own lines', () => {
+    const r = repo('delta');
+    initBrain(r, 'delta');
+    writeFileSync(path.join(r, 'CLAUDE.md'), '# Delta\n\nOwn notes.\n');
+    mkdirSync(path.join(r, '.claude'), { recursive: true });
+    writeFileSync(path.join(r, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(ls)'] } }));
+    wire(r, 'brain');
+    const dry = unwire(r, { dryRun: true });
+    expect(dry.length).toBeGreaterThan(3);
+    expect(existsSync(path.join(r, '.claude', 'skills', 'brain'))).toBe(true);
+    unwire(r);
+    expect(existsSync(path.join(r, '.claude', 'skills', 'brain'))).toBe(false);
+    expect(readFileSync(path.join(r, 'CLAUDE.md'), 'utf8')).toBe('# Delta\n\nOwn notes.\n');
+    expect(existsSync(path.join(r, 'AGENTS.md'))).toBe(false);
+    const settings = JSON.parse(readFileSync(path.join(r, '.claude', 'settings.json'), 'utf8'));
+    expect(settings).toEqual({ permissions: { allow: ['Bash(ls)'] } });
+    const gi = path.join(r, '.gitignore');
+    if (existsSync(gi)) expect(readFileSync(gi, 'utf8')).not.toContain('reinstall-brain');
+    expect(existsSync(path.join(r, 'brain', 'brain.yaml'))).toBe(true);
+    expect(unwire(r)).toEqual([]);
   });
 
   it('repoints a link to an older skill, and leaves a real folder alone', () => {
@@ -120,6 +142,24 @@ describe('hubs', () => {
     expect(disconnectRepo(hub, 'beta')).toBe(true);
     expect(openBrain(hub.root).config.connects.map((c) => c.name)).toEqual(['alpha']);
     expect(syncHub(openBrain(hub.root)).lines.every((l) => !l.error)).toBe(true);
+  });
+
+  it('resolves a relative connects path from the hub folder', async () => {
+    const hubDir = path.join(base, 'demo', 'acme-hub');
+    initHub(hubDir);
+    const w = path.join(base, 'demo', 'widgets');
+    execFileSync('git', ['init', '-q', w]);
+    initBrain(w, 'widgets');
+    const o = await openFresh(openBrain(w));
+    createRecord(o, { type: 'task', title: 'Widget task' });
+    o.db.close();
+    const yml = path.join(hubDir, 'brain', 'brain.yaml');
+    writeFileSync(yml, readFileSync(yml, 'utf8').replace(/^connects:.*$/m, 'connects:\n  - name: widgets\n    path: ../widgets'));
+    expect(openBrain(hubDir).config.connects.map((c) => c.path)).toEqual(['../widgets']);
+    const db = await openHubDb(openBrain(hubDir));
+    await indexHub(openBrain(hubDir), db);
+    expect(inbox(openBrain(hubDir), db).map((i) => i.title)).toContain('Widget task');
+    db.close();
   });
 
   it('supports many hubs on one machine, resolving by flag, folder, then default', () => {

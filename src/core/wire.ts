@@ -33,6 +33,7 @@ const IGNORE_BEGIN = '# >>> reinstall-brain (managed by reinstall-brain; edit ou
 const IGNORE_END = '# <<< reinstall-brain <<<';
 const HOOK_MARK = 'reinstall-brain/hooks/session-start.mjs';
 const HOOK_MARK_RE = /reinstall-brain[\\/]+hooks[\\/]+session-start\.mjs/;
+const HOOK_SKILL_RE = /reinstall-brain[\\/]+skills[\\/]+(brain|hub)$/;
 
 export type Role = 'brain' | 'hub';
 
@@ -154,9 +155,10 @@ function guideBlock(role: Role): string {
   if (role === 'hub') {
     lines.push(
       '',
-      'This folder is a **hub**: `brain/brain.yaml` lists the project brains it connects, and `brain/priorities.md`',
-      "is the owner's ranking of tasks across all of them. Read `brain/HUB.md` before working with it. The `/hub`",
-      'skill sets the hub up, connects repos, and helps the owner prioritize.',
+      'This folder is a **hub**: `brain/brain.yaml` lists the project brains it connects, in the owner\'s project order,',
+      "and `brain/priorities.md` ranks goals (and pins a few tasks); every open task across them takes its place from",
+      'those. Read `brain/HUB.md` before working with it. The `/hub` skill sets the hub up, connects repos, and helps',
+      'the owner prioritize.',
     );
   }
   return lines.join('\n');
@@ -287,6 +289,80 @@ export function wire(root: string, role: Role, opts: { dryRun?: boolean } = {}):
     if (!existsSync(pr)) {
       writeIfChanged(pr, HUB_TEMPLATES['priorities.md'], dryRun);
       out.push({ kind: 'write', what: 'brain/priorities.md' });
+    }
+  }
+  return out;
+}
+
+/**
+ * Undo `wire`: remove the skill links that point at this package, the managed blocks in CLAUDE.md,
+ * AGENTS.md and .gitignore, and the session hook. Never touches `brain/` (the records are the
+ * project's) or anything it did not write. A file left empty by removing a block is deleted.
+ */
+export function unwire(root: string, opts: { dryRun?: boolean } = {}): WireLine[] {
+  const dryRun = !!opts.dryRun;
+  const out: WireLine[] = [];
+  for (const name of skillsFor('hub')) {
+    const rel = `.claude/skills/${name}`;
+    const at = path.join(root, rel);
+    const st = lstat(at);
+    if (!st) continue;
+    let cur = '';
+    try {
+      cur = readlinkSync(at);
+    } catch {}
+    const ours = st.isSymbolicLink() && (HOOK_SKILL_RE.test(cur) || sameRealPath(at, path.join(packageRoot(), 'skills', name)));
+    if (!ours) {
+      out.push({ kind: 'occupied', what: rel, note: 'not a link to reinstall-brain; left alone' });
+      continue;
+    }
+    if (!dryRun) removeLink(at);
+    out.push({ kind: 'write', what: rel, note: 'link removed' });
+  }
+  const strip = (rel: string, begin: string, end: string) => {
+    const p = path.join(root, rel);
+    let text: string;
+    try {
+      text = readFileSync(p, 'utf8');
+    } catch {
+      return;
+    }
+    const re = new RegExp(`\\n?${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n?`);
+    if (!re.test(text)) return;
+    const next = text.replace(re, '\n').replace(/^\n+/, '').replace(/\n{3,}/g, '\n\n');
+    if (!dryRun) {
+      if (next.trim()) writeFileSync(p, `${next.trimEnd()}\n`);
+      else unlinkSync(p);
+    }
+    out.push({ kind: 'write', what: `${rel} block`, note: next.trim() ? 'removed' : 'removed (file was only the block: deleted)' });
+  };
+  strip('CLAUDE.md', BLOCK_BEGIN, BLOCK_END);
+  strip('AGENTS.md', BLOCK_BEGIN, BLOCK_END);
+  strip('.gitignore', IGNORE_BEGIN, IGNORE_END);
+  const sp = path.join(root, '.claude', 'settings.json');
+  if (existsSync(sp)) {
+    try {
+      const cfg = JSON.parse(readFileSync(sp, 'utf8'));
+      const groups: any[] = Array.isArray(cfg?.hooks?.SessionStart) ? cfg.hooks.SessionStart : [];
+      let removed = false;
+      for (const g of groups) {
+        if (!Array.isArray(g.hooks)) continue;
+        const before = g.hooks.length;
+        g.hooks = g.hooks.filter((h: any) => !(typeof h.command === 'string' && HOOK_MARK_RE.test(h.command)));
+        if (g.hooks.length !== before) removed = true;
+      }
+      if (removed) {
+        cfg.hooks.SessionStart = groups.filter((g) => !Array.isArray(g.hooks) || g.hooks.length);
+        if (!cfg.hooks.SessionStart.length) delete cfg.hooks.SessionStart;
+        if (!Object.keys(cfg.hooks).length) delete cfg.hooks;
+        if (!dryRun) {
+          if (Object.keys(cfg).length) writeFileSync(sp, `${JSON.stringify(cfg, null, 2)}\n`);
+          else unlinkSync(sp);
+        }
+        out.push({ kind: 'write', what: '.claude/settings.json SessionStart hook', note: 'removed' });
+      }
+    } catch {
+      out.push({ kind: 'occupied', what: '.claude/settings.json', note: 'is not valid JSON; remove the reinstall-brain hook by hand' });
     }
   }
   return out;
