@@ -87,7 +87,7 @@ Everything outside `brain/` is in clearly marked blocks, and your own lines are 
 
 `reinstall-hub init` also adds the hub to this machine's list of hubs (in `~/.config/reinstall-brain/`),
 so commands find it by name: `reinstall-hub list` shows them, `reinstall-hub forget <name>` takes one off
-(the folder is untouched).
+(the folder is untouched) Set `REINSTALL_BRAIN_CONFIG_DIR` to keep a throwaway hub off that list.
 
 ## How it compares
 

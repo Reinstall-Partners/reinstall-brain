@@ -68,8 +68,9 @@ interface Registry {
   hubs: HubEntry[];
 }
 
+/** Where this machine's list of hubs lives; REINSTALL_BRAIN_CONFIG_DIR moves it (tests, throwaway runs). */
 function configDir(): string {
-  return path.join(os.homedir(), '.config', 'reinstall-brain');
+  return process.env.REINSTALL_BRAIN_CONFIG_DIR || path.join(os.homedir(), '.config', 'reinstall-brain');
 }
 
 function registryFile(): string {
