@@ -155,6 +155,7 @@ reinstall-brain doctor
 reinstall-brain wire | unwire              add or remove this repo's skills, hook and guide blocks
 reinstall-hub use <name>                   make a hub the default
 reinstall-hub unrank-goal <brain>/<id>     take a goal out of the ranking
+reinstall-brain feedback "<what broke>"    report a rough edge here, as you (shows it; --yes files it)
 ```
 
 `reinstall-brain --help` and `reinstall-hub --help` list every command and flag. Every command

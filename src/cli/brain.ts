@@ -4,6 +4,7 @@ import { readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { wire, unwire, formatWire, packageRoot } from '../core/wire.js';
 import { hubsConnecting } from '../core/hub.js';
+import { draftFeedback, fileFeedback, privateHits, KINDS, type Kind } from '../core/feedback.js';
 import { openDb } from '../core/sqlite.js';
 import { doctor } from '../core/doctor.js';
 import { VERSION } from '../core/version.js';
@@ -46,6 +47,9 @@ Maintain
   context [--agent NAME]             print what the session hook loads (open tasks, questions, decisions,
                                      goals; a hub's ranking), for agents with no session hook
   where                              print the brain this folder uses
+  feedback "<what>" [--body TEXT|--body-file F] [--kind bug|nit|idea] [--command CMD] [--yes]
+                                     report a rough edge to this tool's GitHub repo, as you (your gh login),
+                                     with version and OS. Shows the issue; files it only with --yes
   kitdb <name> "<sql>" [--json]      read/write SQL on a kit's own live-state database, brain/.local/<name>.db
   doctor [--fetch]                   check this machine can run the brain, and that it runs the clone's current
                                      build, level with GitHub (--fetch checks GitHub now), with no other copy on PATH
@@ -151,6 +155,32 @@ async function main(argv: string[]): Promise<number> {
       const wired = wire(brain.root, brain.config.hub ? 'hub' : 'brain', { dryRun: a.flag('dry-run') });
       out(wired, () => console.log(formatWire(wired) || 'wired; nothing changed'));
       return 0;
+    }
+    case 'feedback': {
+      // Report a rough edge to this package's GitHub repo as the user (their gh login). Public repo:
+      // without --yes it only shows the issue; show it to the user, and file it once they agree.
+      const title = pos.join(' ').trim();
+      if (!title) throw new Error('usage: reinstall-brain feedback "<what went wrong>" [--body TEXT|--body-file F] [--kind bug|nit|idea] [--command CMD] [--yes]');
+      const kind = (a.value('kind') ?? 'bug') as Kind;
+      if (!KINDS.includes(kind)) throw new Error(`--kind is one of ${KINDS.join(', ')}`);
+      const bodyFile = a.value('body-file');
+      const body = bodyFile ? readFileSync(bodyFile === '-' ? 0 : bodyFile, 'utf8') : a.value('body');
+      const draft = draftFeedback({ title, body, kind, command: a.value('command') });
+      const hits = privateHits(draft);
+      if (hits.length) {
+        process.stderr.write(`reinstall-brain feedback: the issue names ${hits.map((h) => `"${h}"`).join(', ')} from your private-words list, and this repository is public. Rewrite it with generic names.\n`);
+        return 1;
+      }
+      if (!a.flag('yes') || a.flag('dry-run')) {
+        out({ filed: false, preview: draft }, () => {
+          console.log(`Would file on github.com/${draft.repo} (public), as your gh login:\n\n# ${draft.title}\n\n${draft.body}`);
+          console.log('Show this to the user. Once they agree, run the same command with --yes.');
+        });
+        return 0;
+      }
+      const r = fileFeedback(draft);
+      out(r, () => console.log(r.filed ? `filed: ${r.url}` : `not filed: ${r.error}. The issue text is in ${r.savedTo}, to file by hand.`));
+      return r.filed ? 0 : 1;
     }
     case 'context': {
       // The same text the session hook gives agents that have one (Claude Code, Codex): one code path.

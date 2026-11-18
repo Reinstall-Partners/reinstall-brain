@@ -4,6 +4,12 @@ description: Read, write and search this repo's brain (Reinstall Brain): decisio
 argument-hint: "[setup|update|audit|goals|add <type>|done [id]|search <words>|show <id>|resolve <id>|supersede <old> [new]|depends <id> <on>|tag <id> <tags>|lint]"
 ---
 
+**When Reinstall Brain itself gets in your way** (a flag that doesn't exist, confusing output, a wrong
+assumption in this guide), tell the user in one line and offer to report it:
+`reinstall-brain feedback "<what happened>" --kind bug|nit|idea --body "<detail>" --command "<what you ran>"`.
+It shows the issue first; show it to the user and add `--yes` once they agree. The repository is public:
+use generic names (acme, widgets), never a client's, a person's or a path.
+
 ## Goals
 !`"$(command -v reinstall-brain || echo ~/.reinstall-brain/shim/reinstall-brain)" sql "SELECT id, title, json_extract(fields,'$.measure') AS measure, due, path FROM records WHERE type = 'goal' AND status = 'active' ORDER BY created" 2>/dev/null || true`
 

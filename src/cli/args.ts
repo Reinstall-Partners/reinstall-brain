@@ -10,7 +10,7 @@ export interface Args {
   wantsHelp: boolean;
 }
 
-const BOOLEAN = new Set(['json', 'rebuild', 'help', 'dry-run', 'move-docs', 'top', 'bottom', 'all', 'default', 'no-wire', 'unserved']);
+const BOOLEAN = new Set(['json', 'rebuild', 'help', 'dry-run', 'move-docs', 'top', 'bottom', 'all', 'default', 'no-wire', 'unserved', 'yes', 'fetch']);
 
 export function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -21,7 +21,8 @@ export function parseArgs(argv: string[]): Args {
       positional.push(...argv.slice(i + 1));
       break;
     }
-    if (t.startsWith('--')) {
+    // A token with a space in it is text (a title like "--tag splits commas"), never a flag.
+    if (t.startsWith('--') && !/\s/.test(t)) {
       const eq = t.indexOf('=');
       const key = eq > 0 ? t.slice(2, eq) : t.slice(2);
       let val: string;

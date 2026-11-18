@@ -1,7 +1,7 @@
 // The CLIs are safe to probe: -h/--help never runs a command, an unknown flag is refused, and every
 // flag a command reads is one its help names. (GitHub issues #1 and #2.)
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -51,6 +51,27 @@ describe('CLI safety', () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/unknown flag --dryrun/);
     expect(readdirSync(dir).sort()).toEqual(['.git']);
+  });
+});
+
+describe('feedback', () => {
+  it('shows the issue and files nothing without --yes; a title may start with --', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'rb-fb-'));
+    const r = run('brain', ['feedback', '--tag does not split commas', '--kind', 'nit', '--body', 'Seen while seeding.'], dir);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/# NIT: --tag does not split commas/);
+    expect(r.stdout).toMatch(/reinstall-brain \d+\.\d+\.\d+/);
+    expect(r.stdout).not.toContain(dir);
+  });
+
+  it('refuses an issue that names a private word', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'rb-fb-'));
+    writeFileSync(path.join(dir, 'words.txt'), '# private\nAcmeSecretClient\n');
+    const r = spawnSync(process.execPath, [path.join(ROOT, 'dist', 'cli', 'brain.js'), 'feedback', 'Broke for acmesecretclient'], {
+      cwd: dir, encoding: 'utf8', env: { ...process.env, REINSTALL_BRAIN_PRIVATE_WORDS: path.join(dir, 'words.txt') },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/private-words/);
   });
 });
 
