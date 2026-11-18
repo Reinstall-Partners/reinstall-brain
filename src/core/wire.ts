@@ -37,6 +37,12 @@ const HOOK_SKILL_RE = /reinstall-brain[\\/]+skills[\\/]+(brain|hub)$/;
 
 export type Role = 'brain' | 'hub';
 
+/**
+ * Where skills are linked: `.claude/skills` (Claude Code) and `.agents/skills`, the open Agent Skills folder
+ * that Codex, Cursor, Copilot and Gemini read.
+ */
+export const SKILL_DIRS = ['.claude/skills', '.agents/skills'] as const;
+
 export interface WireLine {
   kind: 'ok' | 'link' | 'relink' | 'write' | 'remove' | 'occupied' | 'skip';
   what: string;
@@ -151,6 +157,8 @@ function guideBlock(role: Role): string {
     'and notes, one markdown file per record. Read `brain/README.md` before reading or writing records. With the',
     '`reinstall-brain` CLI, prefer it (`reinstall-brain list|search|show|new|set|done`); without it, edit the files',
     'as the guide says. In messages to a person, name a record by a link to its file, never by its bare id.',
+    'The `/brain` skill is in `.agents/skills/brain/` (and `.claude/skills/brain/`). When no session hook has loaded',
+    "this brain's open tasks and decisions into your context, run `reinstall-brain context` first and read what it prints.",
   ];
   if (role === 'hub') {
     lines.push(
@@ -246,14 +254,16 @@ export function wire(root: string, role: Role, opts: { dryRun?: boolean } = {}):
   const links: string[] = [];
   for (const name of skillsFor(role)) {
     const target = path.join(src.abs, 'skills', name);
-    if (!existsSync(path.join(packageRoot(), 'skills', name, 'SKILL.md'))) {
-      out.push({ kind: 'skip', what: `.claude/skills/${name}`, note: 'this reinstall-brain install has no skills/ folder (install from a git clone to get them)' });
-      continue;
+    for (const dir of SKILL_DIRS) {
+      const rel = `${dir}/${name}`;
+      if (!existsSync(path.join(packageRoot(), 'skills', name, 'SKILL.md'))) {
+        out.push({ kind: 'skip', what: rel, note: 'this reinstall-brain install has no skills/ folder (install from a git clone to get them)' });
+        continue;
+      }
+      const kind = linkDir(target, path.join(root, rel), dryRun);
+      out.push({ kind, what: rel, note: kind === 'occupied' ? 'a real folder is there; remove it to let the shared skill in' : undefined });
+      if (kind !== 'occupied') links.push(rel);
     }
-    const rel = `.claude/skills/${name}`;
-    const kind = linkDir(target, path.join(root, rel), dryRun);
-    out.push({ kind, what: rel, note: kind === 'occupied' ? 'a real folder is there; remove it to let the shared skill in' : undefined });
-    if (kind !== 'occupied') links.push(rel);
   }
   if (links.length) out.push(gitignoreBlock(root, links, dryRun));
 
@@ -302,8 +312,8 @@ export function wire(root: string, role: Role, opts: { dryRun?: boolean } = {}):
 export function unwire(root: string, opts: { dryRun?: boolean } = {}): WireLine[] {
   const dryRun = !!opts.dryRun;
   const out: WireLine[] = [];
-  for (const name of skillsFor('hub')) {
-    const rel = `.claude/skills/${name}`;
+  for (const rel of skillsFor('hub').flatMap((name) => SKILL_DIRS.map((d) => `${d}/${name}`))) {
+    const name = path.basename(rel);
     const at = path.join(root, rel);
     const st = lstat(at);
     if (!st) continue;
@@ -372,8 +382,7 @@ export function unwire(root: string, opts: { dryRun?: boolean } = {}): WireLine[
 export function wiringGaps(root: string, role: Role): string[] {
   const gaps: string[] = [];
   for (const name of skillsFor(role)) {
-    const st = lstat(path.join(root, '.claude', 'skills', name));
-    if (!st) gaps.push(`.claude/skills/${name}`);
+    for (const dir of SKILL_DIRS) if (!lstat(path.join(root, dir, name))) gaps.push(`${dir}/${name}`);
   }
   return gaps;
 }

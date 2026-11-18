@@ -13,6 +13,9 @@
 //   4. puts `reinstall-brain` and `reinstall-hub` on your PATH with `npm link`, and writes shims in
 //      ~/.reinstall-brain/shim/ that work from any process, PATH or not (skill preambles, hooks).
 //   5. with --hub <folder>: creates (or adopts) a hub there and wires its skills.
+//   6. if Codex is installed (~/.codex exists): adds this brain's session hook to ~/.codex/hooks.json, so
+//      Codex sessions load the brain like Claude Code's do. Codex asks you to trust a new hook once
+//      (/hooks in the CLI, Settings > Hooks in the app). --no-codex skips it.
 //
 // Then: open the hub folder with your agent and run /hub, or `reinstall-hub connect <repo>`.
 // Later: `reinstall-brain update` pulls, rebuilds and re-wires every hub.
@@ -126,6 +129,36 @@ exec "$NODE" '${path.join(HERE, 'dist', 'cli', entry).replace(/'/g, "'\\''")}' "
     }
   }
   say(`[shim] ~/.reinstall-brain/shim/reinstall-brain and reinstall-hub (node: ${nodeBin})`);
+}
+
+// 6. Codex: the session hook in ~/.codex/hooks.json (a JSON merge: other hooks are kept).
+const CODEX = path.join(os.homedir(), '.codex');
+if (!args.includes('--no-codex') && fs.existsSync(CODEX)) {
+  const file = path.join(CODEX, 'hooks.json');
+  let cfg = {};
+  try {
+    cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    if (fs.existsSync(file)) {
+      say(`[skip] ~/.codex/hooks.json is not valid JSON; add the Reinstall Brain hook by hand (see README, Agents)`);
+      cfg = null;
+    }
+  }
+  if (cfg) {
+    const command = 'node ~/.reinstall-brain/hooks/session-start.mjs --agent codex';
+    cfg.hooks ??= {};
+    const groups = Array.isArray(cfg.hooks.SessionStart) ? cfg.hooks.SessionStart : [];
+    const ours = groups.flatMap((g) => g.hooks || []).find((h) => typeof h.command === 'string' && /reinstall-brain[\\/]+hooks[\\/]+session-start\.mjs/.test(h.command));
+    if (ours && ours.command === command && ours.additionalContextLimit >= 20000) {
+      say('[ok] Codex loads the brain at session start (~/.codex/hooks.json)');
+    } else {
+      if (ours) Object.assign(ours, { command, additionalContextLimit: 20000 });
+      else groups.push({ matcher: 'startup|resume', hooks: [{ type: 'command', command, statusMessage: 'Loading the brain', additionalContextLimit: 20000 }] });
+      cfg.hooks.SessionStart = groups;
+      if (!dryRun) fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
+      say('[codex] added the brain\'s session hook to ~/.codex/hooks.json. Open Codex once and trust it (/hooks, or Settings > Hooks): until then Codex skips it silently.');
+    }
+  }
 }
 
 // 5. A hub.

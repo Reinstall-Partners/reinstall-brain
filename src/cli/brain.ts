@@ -43,6 +43,8 @@ Maintain
   index [--rebuild]                  refresh the index (every command does this first)
   lint [--fix] [--author WHO]        check every record; exit 1 on errors. --fix closes phase tasks
                                      whose plan file marks the phase done
+  context [--agent NAME]             print what the session hook loads (open tasks, questions, decisions,
+                                     goals; a hub's ranking), for agents with no session hook
   where                              print the brain this folder uses
   kitdb <name> "<sql>" [--json]      read/write SQL on a kit's own live-state database, brain/.local/<name>.db
   doctor                             check this machine can run the brain
@@ -133,6 +135,13 @@ async function main(argv: string[]): Promise<number> {
       const brain = requireBrain();
       const wired = wire(brain.root, brain.config.hub ? 'hub' : 'brain', { dryRun: a.flag('dry-run') });
       out(wired, () => console.log(formatWire(wired) || 'wired; nothing changed'));
+      return 0;
+    }
+    case 'context': {
+      // The same text the session hook gives agents that have one (Claude Code, Codex): one code path.
+      const hook = path.join(packageRoot(), 'hooks', 'session-start.mjs');
+      const args = [hook, '--text', '--agent', a.value('agent') ?? 'agent'];
+      process.stdout.write(execFileSync(process.execPath, args, { cwd: process.cwd(), encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: '' } }));
       return 0;
     }
     case 'unwire': {

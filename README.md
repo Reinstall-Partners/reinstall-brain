@@ -77,7 +77,7 @@ Just one repo, no hub: `cd <repo> && reinstall-brain init`.
 | `brain/` | the records, the guide (`brain/README.md`), record templates | yes |
 | `CLAUDE.md`, `AGENTS.md` | a short block between `reinstall-brain` markers pointing the agent at `brain/README.md` | yes |
 | `.claude/settings.json` | a session-start hook that loads the brain's open tasks, questions and decisions | yes |
-| `.claude/skills/brain` (and `hub` in a hub) | links to the skills in your clone | no: git-ignored (managed block in `.gitignore`) |
+| `.claude/skills/brain`, `.agents/skills/brain` (and `hub` in a hub) | links to the skills in your clone, for Claude Code and for every agent that reads the open `.agents/skills` folder | no: git-ignored (managed block in `.gitignore`) |
 | in a hub only: `brain/HUB.md`, `brain/priorities.md` | the hub's agent guide, and your goal ranking | yes |
 
 Everything outside `brain/` is in clearly marked blocks, and your own lines are never touched.
@@ -122,9 +122,14 @@ It doesn't replace your issue tracker for a team; plenty of people use both.
 
 ## Agents
 
-Claude Code gets the most today: the `/brain` and `/hub` skills, and a session hook that loads the
-brain when a session starts. Any agent that reads `AGENTS.md` (Codex, Cursor, Gemini CLI and others)
-is pointed at `brain/README.md` and can work every record by hand or through the CLI.
+| | Claude Code | Codex | Cursor, Copilot, Gemini and others |
+|---|---|---|---|
+| Reads the guide block | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` |
+| `/brain` and `/hub` skills | `.claude/skills/` | `.agents/skills/` (`$brain`, `$hub`) | `.agents/skills/` |
+| Brain loaded at session start | hook in `.claude/settings.json` | hook in `~/.codex/hooks.json`, added by `setup.mjs` (trust it once: `/hooks`) | `reinstall-brain context`, which the guide block tells the agent to run |
+
+Codex is tested; the others read the same files by their docs. Whatever the agent, the brain is plain
+files and `brain/README.md` says how to work it by hand.
 
 ## Commands
 

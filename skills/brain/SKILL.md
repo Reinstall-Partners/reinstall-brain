@@ -139,7 +139,7 @@ reinstall-brain goals --json          # each active goal with open_tasks and don
 1. Show each goal as a link with its latest Pace line and how many open tasks serve it.
 2. **Read the pace** when asked, or when the last Pace line is more than a week old: run or read the
    measure, then append a line to the goal's `## Pace` section: `- YYYY-MM-DD: <reading>` (edit the file).
-3. **Tasks serving no goal:** put them to the user in rounds of up to 4 with your question tool. For each,
+3. **Tasks serving no goal:** put them to the user in rounds of up to 4 (your question tool if you have one, otherwise a short numbered list). For each,
    offer the active goals that fit (recommendation first) and **No goal: drop it** or **No goal: keep**.
    Record a choice with `reinstall-brain set <task id> serves=<goal id>`, or drop it (see **Done**).
 4. **A goal reached:** `reinstall-brain done <goal id> --log "claude (for <owner>): <the reading that met done_when>"`.

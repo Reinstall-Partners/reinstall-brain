@@ -47,7 +47,9 @@ describe('wiring', () => {
     expect(first.some((l) => l.kind === 'link' && l.what === '.claude/skills/brain')).toBe(true);
     expect(lstatSync(path.join(r, '.claude', 'skills', 'brain')).isSymbolicLink()).toBe(true);
     expect(existsSync(path.join(r, '.claude', 'skills', 'brain', 'SKILL.md'))).toBe(true);
+    expect(existsSync(path.join(r, '.agents', 'skills', 'brain', 'SKILL.md'))).toBe(true);
     expect(existsSync(path.join(r, '.claude', 'skills', 'hub'))).toBe(false);
+    expect(readFileSync(path.join(r, 'AGENTS.md'), 'utf8')).toContain('reinstall-brain context');
     const settings = JSON.parse(readFileSync(path.join(r, '.claude', 'settings.json'), 'utf8'));
     expect(JSON.stringify(settings.hooks.SessionStart)).toMatch(/reinstall-brain[\\/]+hooks[\\/]+session-start\.mjs/);
     const claude = readFileSync(path.join(r, 'CLAUDE.md'), 'utf8');
@@ -75,6 +77,7 @@ describe('wiring', () => {
     expect(existsSync(path.join(r, '.claude', 'skills', 'brain'))).toBe(true);
     unwire(r);
     expect(existsSync(path.join(r, '.claude', 'skills', 'brain'))).toBe(false);
+    expect(existsSync(path.join(r, '.agents', 'skills', 'brain'))).toBe(false);
     expect(readFileSync(path.join(r, 'CLAUDE.md'), 'utf8')).toBe('# Delta\n\nOwn notes.\n');
     expect(existsSync(path.join(r, 'AGENTS.md'))).toBe(false);
     const settings = JSON.parse(readFileSync(path.join(r, '.claude', 'settings.json'), 'utf8'));

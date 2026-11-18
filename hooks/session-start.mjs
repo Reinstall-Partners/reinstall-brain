@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Reinstall Brain's SessionStart hook: loads what a new agent session needs about this folder's brain,
 // as additionalContext. Wired into .claude/settings.json by `reinstall-brain init|wire` and
-// `reinstall-hub init|connect|sync`.
+// `reinstall-hub init|connect|sync`, and into Codex's ~/.codex/hooks.json by setup.mjs (with --agent codex).
+// `reinstall-brain context` runs it with --text for agents that have no session hook.
 //
 //   - a project brain: active and blocked tasks, open questions, recent decisions (each with its file
 //     path, so the agent can link to it), and the conventions for working with the brain.
@@ -32,9 +33,18 @@ const guard = (label, fn) => {
   }
 };
 
+// --text prints the context as plain text (`reinstall-brain context` uses it, for agents without a session
+// hook); --agent <name> names the agent in the author line (claude by default; codex from Codex's hook).
+const argv = process.argv.slice(2);
+const TEXT = argv.includes('--text');
+const AGENT = (() => {
+  const i = argv.indexOf('--agent');
+  return i >= 0 && argv[i + 1] ? argv[i + 1] : 'claude';
+})();
+
 let input = {};
 try {
-  if (!process.stdin.isTTY) input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
+  if (!TEXT && !process.stdin.isTTY) input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}');
 } catch {}
 const cwd = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
 
@@ -79,7 +89,7 @@ guard('build', () => {
 });
 guard('wiring', () => {
   const want = isHub ? ['brain', 'hub'] : ['brain'];
-  const missing = want.filter((n) => !fs.existsSync(path.join(root, '.claude', 'skills', n, 'SKILL.md')));
+  const missing = want.filter((n) => ['.claude', '.agents'].some((d) => !fs.existsSync(path.join(root, d, 'skills', n, 'SKILL.md'))));
   if (missing.length) notice(`🔌 This ${isHub ? 'hub' : 'repo'} is missing Reinstall Brain's ${missing.map((m) => `/${m}`).join(' and ')} skill. Fix it with \`${isHub ? 'reinstall-hub sync' : 'reinstall-brain wire'}\` (offer to run it).`);
 });
 
@@ -105,7 +115,7 @@ guard('brain', () => {
   const goals = active.filter((r) => r.type === 'goal');
   let s = `## ${isHub ? 'Hub' : 'Brain'}: ${where.name} (auto-loaded at session start)\n\nRecords are in brain/, one markdown file each.`;
   const owner = git(['config', 'user.name'], root);
-  if (owner) s += ` Write as \`--author "claude (for ${owner})"\`.`;
+  if (owner) s += ` Write as \`--author "${AGENT} (for ${owner})"\`.`;
   if (goals.length) {
     s += `\n\n### Goals\n${goals.map((g) => {
       const f = g.fields || {};
@@ -156,5 +166,6 @@ if (guide) sections.push(guide);
 emit([notices.join('\n\n'), ...sections].filter(Boolean).join('\n\n'));
 
 function emit(ctx) {
-  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } }) + '\n');
+  if (TEXT) process.stdout.write(ctx ? `${ctx}\n` : '');
+  else process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx } }) + '\n');
 }

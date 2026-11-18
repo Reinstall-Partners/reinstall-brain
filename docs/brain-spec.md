@@ -314,10 +314,17 @@ A hub also carries `brain/HUB.md`, the agent guide for working it, refreshed by 
 ### Wiring
 
 Tools set up the folders that use a brain or a hub so an agent can work in them straight away
-(`reinstall-brain init|wire`, `reinstall-hub init|connect|sync`): the `brain` skill (and the `hub`
-skill in a hub) linked into `.claude/skills/`, a session hook that loads the brain's context, and a
-managed block in `CLAUDE.md` and `AGENTS.md` pointing at the guide. The links are git-ignored, since
-they hold one machine's paths; everything else is committed.
+(`reinstall-brain init|wire`, `reinstall-hub init|connect|sync`):
+
+- the `brain` skill (and the `hub` skill in a hub) linked into `.claude/skills/` (Claude Code) and
+  `.agents/skills/` (the open Agent Skills folder that Codex, Cursor, Copilot and Gemini read);
+- a session hook that loads the brain's context: in `.claude/settings.json` per folder, and for Codex once
+  per machine in `~/.codex/hooks.json`. `reinstall-brain context` prints the same text for an agent with no
+  hook;
+- a managed block in `CLAUDE.md` and `AGENTS.md` pointing at the guide, the skill and `reinstall-brain context`.
+
+The links are git-ignored, since they hold one machine's paths; everything else is committed.
+`reinstall-brain unwire` removes all of it and leaves `brain/` alone.
 
 ## Versioning
 
