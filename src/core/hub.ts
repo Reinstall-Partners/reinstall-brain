@@ -65,6 +65,8 @@ export interface HubEntry {
 
 interface Registry {
   default?: string;
+  /** The dev folder: the one folder this machine keeps its project repos in (see devFolder). */
+  dev?: string;
   hubs: HubEntry[];
 }
 
@@ -95,7 +97,7 @@ export function readRegistry(): Registry {
   let reg: Registry = { hubs: [] };
   try {
     const raw = JSON.parse(readFileSync(registryFile(), 'utf8'));
-    reg = { default: raw.default ? String(raw.default) : undefined, hubs: Array.isArray(raw.hubs) ? raw.hubs.map((h: any) => ({ name: String(h.name), path: String(h.path) })) : [] };
+    reg = { default: raw.default ? String(raw.default) : undefined, dev: raw.dev ? String(raw.dev) : undefined, hubs: Array.isArray(raw.hubs) ? raw.hubs.map((h: any) => ({ name: String(h.name), path: String(h.path) })) : [] };
   } catch {
     /* none yet */
   }
@@ -206,6 +208,26 @@ export function locateHub(flag?: string, cwd: string = process.cwd()): Brain {
   throw new Error(reg.hubs.length ? 'more than one hub on this machine: run this inside a hub, pass --hub <name>, or set a default with reinstall-hub use <name>' : 'no hub yet: reinstall-hub init <folder> creates one');
 }
 
+/**
+ * The dev folder: the one folder this machine keeps its project repos in, side by side. REINSTALL_DEV,
+ * else the one saved with `reinstall-hub dev <folder>`, else ~/dev. `set` says whether it was chosen.
+ */
+export function devFolder(): { path: string; set: boolean; exists: boolean } {
+  const chosen = process.env.REINSTALL_DEV || readRegistry().dev;
+  const p = path.resolve(expandHome(chosen || '~/dev'));
+  return { path: p, set: !!chosen, exists: existsSync(p) };
+}
+
+/** Save the dev folder for this machine. It must exist. */
+export function setDevFolder(dir: string): string {
+  const abs = path.resolve(expandHome(dir));
+  if (!existsSync(abs)) throw new Error(`no folder at ${dir}`);
+  const reg = readRegistry();
+  reg.dev = tildePath(abs);
+  writeRegistry(reg);
+  return abs;
+}
+
 /** Make a registered hub (by name or path) the default. */
 export function saveHub(p: string): string {
   const reg = readRegistry();
@@ -293,7 +315,9 @@ function kitFor(hub: Brain, root: string): { install: string } | null {
 
 /** Connect a project repo to a hub: set up its brain if it has none, list it in connects:, and wire it. */
 export function connectRepo(hub: Brain, repo: string, opts: { name?: string } = {}): ConnectResult {
-  const abs = path.resolve(expandHome(repo));
+  let abs = path.resolve(expandHome(repo));
+  // A bare name that is not a folder here is a repo in the dev folder: `connect web-app`.
+  if (!existsSync(abs) && !/[\\/]/.test(repo) && existsSync(path.join(devFolder().path, repo))) abs = path.join(devFolder().path, repo);
   if (!existsSync(abs)) throw new Error(`no folder at ${repo}`);
   const root = locateBrain(abs) ?? abs;
   let createdBrain = false;

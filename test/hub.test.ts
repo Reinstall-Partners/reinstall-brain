@@ -53,3 +53,35 @@ describe('hub', () => {
     db.close();
   });
 });
+
+describe('dev folder', () => {
+  it('defaults to ~/dev, saves a chosen folder, and lets connect take a bare name from it', async () => {
+    const { devFolder, setDevFolder, connectRepo } = await import('../src/core/hub.js');
+    const base = mkdtempSync(path.join(os.tmpdir(), 'rb-dev-'));
+    const prev = { cfg: process.env.REINSTALL_BRAIN_CONFIG_DIR, dev: process.env.REINSTALL_DEV };
+    process.env.REINSTALL_BRAIN_CONFIG_DIR = path.join(base, 'config');
+    delete process.env.REINSTALL_DEV;
+    try {
+      expect(devFolder()).toMatchObject({ path: path.join(os.homedir(), 'dev'), set: false });
+      const dev = path.join(base, 'code');
+      repo('widgets', dev);
+      expect(() => setDevFolder(path.join(base, 'nope'))).toThrow(/no folder/);
+      setDevFolder(dev);
+      expect(devFolder()).toMatchObject({ set: true, exists: true });
+      expect(devFolder().path).toBe(path.resolve(dev));
+      const hubRoot = repo('acme-hub', base);
+      writeFileSync(path.join(hubRoot, 'brain', 'brain.yaml'), 'format: 1\nname: acme-hub\nhub: true\n');
+      const hub = locateHub(hubRoot);
+      const r = connectRepo(hub, 'widgets');
+      expect(r.name).toBe('widgets');
+      expect(path.basename(r.root)).toBe('widgets');
+      process.env.REINSTALL_DEV = base;
+      expect(devFolder().path).toBe(path.resolve(base));
+    } finally {
+      for (const [k, v] of [['REINSTALL_BRAIN_CONFIG_DIR', prev.cfg], ['REINSTALL_DEV', prev.dev]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+});

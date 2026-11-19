@@ -1,6 +1,6 @@
 {
   "name": "reinstall-brain",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Brain and Hub: a git-native record store that any agent can read, and the hub that connects every project's brain.",
   "license": "MIT",
   "type": "module",

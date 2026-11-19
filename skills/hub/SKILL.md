@@ -109,8 +109,11 @@ confirmed), **Prioritize** (recommended when old tasks pile up), **Plan today**,
    It creates the brain (or adopts the one there), marks it a hub, writes `brain/HUB.md` and
    `brain/priorities.md`, wires the `/hub` and `/brain` skills and the session hook, and registers the
    hub on this machine. If it is the first hub, it becomes the default.
-3. **Find the projects.** Ask where the projects live (options: the hub's parent folder, the home
-   folder, somewhere else). List the git repos there, two levels deep, skipping dependency folders:
+3. **Find the projects.** They live in the dev folder: the one folder this machine keeps its project
+   repos in, side by side (`reinstall-hub dev` prints it; default `~/dev`). If it says `(default…)`,
+   confirm it with the user (options: the printed folder, the hub's parent folder, somewhere else) and
+   save the answer with `reinstall-hub dev <folder>`. List the git repos there, two levels deep,
+   skipping dependency folders:
    ```bash
    find <folder> -maxdepth 3 -name .git -not -path '*/node_modules/*' 2>/dev/null | sed 's#/\.git$##'
    ```

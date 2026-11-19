@@ -87,7 +87,12 @@ Everything outside `brain/` is in clearly marked blocks, and your own lines are 
 
 `reinstall-hub init` also adds the hub to this machine's list of hubs (in `~/.config/reinstall-brain/`),
 so commands find it by name: `reinstall-hub list` shows them, `reinstall-hub forget <name>` takes one off
-(the folder is untouched) Set `REINSTALL_BRAIN_CONFIG_DIR` to keep a throwaway hub off that list.
+(the folder is untouched). Set `REINSTALL_BRAIN_CONFIG_DIR` to keep a throwaway hub off that list.
+
+The same file holds the machine's **dev folder**: the one folder you keep your project repos in, side by
+side (default `~/dev`). `reinstall-hub dev` prints it, `reinstall-hub dev <folder>` saves another, and
+`REINSTALL_DEV` overrides it for one run. `/hub` looks there for projects, and `reinstall-hub connect
+web-app` takes a bare name from it.
 
 ## How it compares
 

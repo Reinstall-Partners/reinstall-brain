@@ -3,7 +3,7 @@ import { VERSION } from '../core/version.js';
 import { parseArgs, preflight } from './args.js';
 import {
   locateHub, saveHub, openHubDb, indexHub, priorities, inbox, place, unrank, type Position,
-  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, forgetHub, goals, placeGoal, unrankGoal, cover,
+  initHub, connectRepo, disconnectRepo, syncHub, listHubs, readRegistry, forgetHub, devFolder, setDevFolder, goals, placeGoal, unrankGoal, cover,
   projects, placeProject, inboxByPlan, moveRecord, pace,
 } from '../core/hub.js';
 import { formatWire } from '../core/wire.js';
@@ -22,12 +22,15 @@ Usage: reinstall-hub <command> [--hub NAME|PATH] [--json]
 
 Set up
   init [folder] [--name NAME] [--default] [--dry-run]   create a hub (or adopt a folder), register it, wire its skills
-  connect <repo> [--name NAME]     connect a project repo (sets up its brain if it has none) and wire it
+  connect <repo> [--name NAME]     connect a project repo (sets up its brain if it has none) and wire it;
+                                   a bare name is looked for in the dev folder
   disconnect <name>                remove a brain from this hub (its own wiring stays)
   sync [--all]                     re-wire this hub (or every hub) and its connected repos
   list                             the hubs on this machine
   forget <name|path>               take a hub off this machine's list (init adds it; the folder stays)
   use <name|path>                  make a hub the default
+  dev [folder]                     the dev folder, where this machine keeps its project repos (default ~/dev);
+                                   with a folder, save it
 
 Work
   index                            refresh every connected brain and the hub's combined index
@@ -70,6 +73,12 @@ async function main(argv: string[]): Promise<number> {
     if (!pos[0]) throw new Error('usage: reinstall-hub use <name or path>');
     const root = saveHub(pos[0]);
     console.log(`default hub: ${root}`);
+    return 0;
+  }
+  if (cmd === 'dev') {
+    if (pos[0]) setDevFolder(pos[0]);
+    const d = devFolder();
+    out(d, () => console.log(`${d.path}${d.set ? '' : '   (default: save one with reinstall-hub dev <folder>)'}${d.exists ? '' : '   (missing)'}`));
     return 0;
   }
   if (cmd === 'forget') {
